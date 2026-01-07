@@ -83,13 +83,22 @@ uv pip install -e .
 pip install -e .
 ```
 
-### 2. Download Models (for local LLM)
+### 2. Install Ollama & Download Models (Recommended)
 
 ```bash
-python download_models.py
+# Install Ollama (if not already installed)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Download recommended models
+ollama pull qwen2:1.5b      # General queries (934 MB)
+ollama pull phi3:mini        # Advanced reasoning (2.2 GB)
+ollama pull llama3.2:1b      # Fast inference (1.3 GB)
 ```
 
-Select **Qwen2-1.5B-Instruct** (recommended for 4GB VRAM).
+**Model Selection Guide:**
+- **qwen2:1.5b** ⭐ Best balance quality/size - Default
+- **phi3:mini** - Strong reasoning for complex queries
+- **llama3.2:1b** - Ultra-fast for simple queries
 
 ### 3. Configuration
 
@@ -100,9 +109,13 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-# Use local vLLM
-MARIE_LLM_PROVIDER=vllm
-MARIE_LLM_MODEL=Qwen/Qwen2-1.5B-Instruct
+# Use Ollama (recommended)
+MARIE_LLM_PROVIDER=ollama
+MARIE_LLM_MODEL=qwen2:1.5b
+
+# Or use vLLM (requires more setup)
+# MARIE_LLM_PROVIDER=vllm
+# MARIE_LLM_MODEL=Qwen/Qwen2-1.5B-Instruct
 
 # Or use Anthropic API
 # MARIE_LLM_PROVIDER=anthropic
@@ -184,7 +197,32 @@ Query: What are the top 5 most cited papers from Universidad de Antioquia?
 
 ## 🔧 Advanced Configuration
 
-### vLLM Settings (4GB VRAM)
+### Ollama Model Switching
+
+Switch models for different use cases:
+
+```bash
+# Fast queries (llama3.2:1b)
+MARIE_LLM_MODEL=llama3.2:1b
+
+# Best quality (qwen2:1.5b) ⭐ Recommended
+MARIE_LLM_MODEL=qwen2:1.5b
+
+# Strong reasoning (phi3:mini)
+MARIE_LLM_MODEL=phi3:mini
+```
+
+### Multi-Model Strategy
+
+Use different models for different agents:
+
+```python
+# In orchestrator: phi3:mini for planning
+# In retrieval: llama3.2:1b for fast queries
+# In reporting: qwen2:1.5b for quality answers
+```
+
+### vLLM Settings (Alternative - 4GB VRAM)
 
 ```bash
 # Maximum GPU usage
@@ -225,13 +263,13 @@ pytest -m integration
 
 ## 📊 Performance
 
-### Model Comparison (4GB VRAM)
+### Model Comparison (Ollama)
 
-| Model | VRAM | Speed | Quality | Recommended |
-|-------|------|-------|---------|-------------|
-| Qwen2-1.5B | 3.2GB | ⚡⚡⚡ | ⭐⭐⭐⭐ | ✅ Yes |
-| SmolLM-1.7B | 3.5GB | ⚡⚡⚡⚡ | ⭐⭐⭐ | Fast |
-| Phi-2 (quant) | 4GB | ⚡⚡ | ⭐⭐⭐⭐ | Reasoning |
+| Model | Size | Speed | Quality | Best For |
+|-------|------|-------|---------|----------|
+| qwen2:1.5b | 934 MB | ⚡⚡⚡ | ⭐⭐⭐⭐ | General use ✅ |
+| phi3:mini | 2.2 GB | ⚡⚡ | ⭐⭐⭐⭐⭐ | Complex reasoning |
+| llama3.2:1b | 1.3 GB | ⚡⚡⚡⚡ | ⭐⭐⭐ | Fast queries |
 
 ## 🤝 Contributing
 
