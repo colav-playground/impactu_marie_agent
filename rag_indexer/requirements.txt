@@ -1,13 +1,26 @@
 # RAG Indexer Dependencies
 
 # Core
-pymongo>=4.6.0
-opensearch-py>=2.4.0
+pymongo==4.16.0
+opensearch-py==3.1.0
 
 # Embeddings
 torch>=2.0.0
-sentence-transformers>=2.2.0
+sentence-transformers==5.2.0
 transformers>=4.30.0
+
+# LangChain Ecosystem
+langchain==1.2.1
+langchain-core==1.2.6
+langchain-anthropic==1.3.1
+langgraph==1.0.5
+
+# Local LLM Inference
+vllm>=0.6.0
+huggingface-hub>=0.26.0
+
+# Pydantic
+pydantic==2.12.5
 
 # Utilities
 python-dotenv>=1.0.0
