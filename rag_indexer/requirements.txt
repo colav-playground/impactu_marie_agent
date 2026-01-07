@@ -1,0 +1,14 @@
+# RAG Indexer Dependencies
+
+# Core
+pymongo>=4.6.0
+opensearch-py>=2.4.0
+
+# Embeddings
+torch>=2.0.0
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.66.0
