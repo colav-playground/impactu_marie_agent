@@ -1,85 +1,70 @@
 """
-vLLM Adapter - Local LLM inference with vLLM.
+Ollama Adapter - Local LLM inference with Ollama.
 
-Adapter implementation for running local models with GPU acceleration.
-Optimized for 4GB VRAM using small, efficient models.
+Adapter implementation for running local models via Ollama API.
+Much simpler and more stable than vLLM for development.
 """
 
 from typing import Dict, Any, List, Optional
 import logging
 import json
-import os
+import requests
 
 from marie_agent.ports.llm_port import LLMPort
 
 logger = logging.getLogger(__name__)
 
 
-class VLLMAdapter(LLMPort):
+class OllamaAdapter(LLMPort):
     """
-    vLLM adapter for local model inference.
+    Ollama adapter for local model inference.
     
-    Supports multiple models optimized for 4GB VRAM:
-    - Qwen/Qwen2-1.5B-Instruct: Best quality for size
-    - microsoft/phi-2: Strong reasoning
-    - HuggingFaceTB/SmolLM-1.7B-Instruct: Fast inference
+    Supports models available in Ollama:
+    - qwen2:1.5b - Best for 4GB VRAM
+    - phi3:mini - Good reasoning
+    - llama3.2:1b - Fast inference
     """
     
     def __init__(
         self,
-        model_name: str = "Qwen/Qwen2-1.5B-Instruct",
-        tensor_parallel_size: int = 1,
-        gpu_memory_utilization: float = 0.9,
-        max_model_len: int = 2048
+        model_name: str = "qwen2:1.5b",
+        base_url: str = "http://localhost:11434",
+        temperature: float = 0.1
     ):
         """
-        Initialize vLLM adapter.
+        Initialize Ollama adapter.
         
         Args:
-            model_name: HuggingFace model identifier
-            tensor_parallel_size: Number of GPUs (1 for single GPU)
-            gpu_memory_utilization: Fraction of GPU memory to use
-            max_model_len: Maximum sequence length
+            model_name: Ollama model name (e.g., "qwen2:1.5b")
+            base_url: Ollama API base URL
+            temperature: Temperature for generation
         """
         self.model_name = model_name
-        self.llm = None
+        self.base_url = base_url
+        self.temperature = temperature
         self._available = False
         
+        # Check if Ollama is available
         try:
-            from vllm import LLM, SamplingParams
-            
-            logger.info(f"Loading model: {model_name}")
-            logger.info(f"Max model length: {max_model_len}")
-            logger.info(f"GPU memory utilization: {gpu_memory_utilization}")
-            
-            # Simplified configuration for stability
-            self.llm = LLM(
-                model=model_name,
-                tensor_parallel_size=tensor_parallel_size,
-                gpu_memory_utilization=gpu_memory_utilization,
-                max_model_len=max_model_len,
-                trust_remote_code=True,
-                dtype="auto",
-                disable_log_stats=True
-            )
-            
-            self.sampling_params = SamplingParams(
-                temperature=0.1,
-                top_p=0.9,
-                max_tokens=512
-            )
-            
-            self._available = True
-            logger.info(f"vLLM initialized successfully: {model_name}")
-            
-        except ImportError:
-            logger.warning("vLLM not installed. Install with: uv pip install vllm")
-        except Exception as e:
-            logger.error(f"Error initializing vLLM: {e}")
-            logger.warning("Falling back to rule-based methods")
+            response = requests.get(f"{base_url}/api/tags", timeout=2)
+            if response.status_code == 200:
+                models = response.json().get("models", [])
+                model_names = [m["name"] for m in models]
+                
+                if model_name in model_names:
+                    self._available = True
+                    logger.info(f"✓ Ollama adapter initialized: {model_name}")
+                else:
+                    logger.warning(f"Model {model_name} not found. Available: {model_names}")
+                    logger.info(f"Pull with: ollama pull {model_name}")
+            else:
+                logger.warning("Ollama API not responding")
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Ollama not available: {e}")
+            logger.info("Start Ollama with: ollama serve")
     
     def is_available(self) -> bool:
-        """Check if vLLM is available."""
+        """Check if Ollama is available."""
         return self._available
     
     def generate(self, prompt: str, max_tokens: int = 512) -> str:
@@ -88,17 +73,27 @@ class VLLMAdapter(LLMPort):
             return ""
         
         try:
-            from vllm import SamplingParams
-            
-            sampling = SamplingParams(
-                temperature=0.1,
-                top_p=0.9,
-                max_tokens=max_tokens
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": self.temperature,
+                        "num_predict": max_tokens
+                    }
+                },
+                timeout=30
             )
             
-            outputs = self.llm.generate([prompt], sampling)
-            return outputs[0].outputs[0].text.strip()
-            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("response", "").strip()
+            else:
+                logger.error(f"Ollama API error: {response.status_code}")
+                return ""
+                
         except Exception as e:
             logger.error(f"Error generating text: {e}")
             return ""
@@ -120,9 +115,9 @@ class VLLMAdapter(LLMPort):
 {f'Context: {context}' if context else ''}
 
 Let's approach this systematically:
-1. First, let me understand what's being asked
-2. Then, I'll break down the problem
-3. Finally, I'll provide a clear answer
+1. First, understand what's being asked
+2. Break down the problem
+3. Provide a clear answer
 
 Reasoning:"""
         
@@ -258,7 +253,7 @@ Complexity: {parsed_query.get('complexity')}
 Available agents:
 - entity_resolution: Disambiguate authors/institutions
 - retrieval: Search databases
-- validation: Check data consistency  
+- validation: Check data consistency
 - metrics: Compute indicators
 - citations: Build evidence map
 - reporting: Generate report
@@ -391,5 +386,5 @@ JSON:"""
             "confidence_score": score,
             "confidence_level": level,
             "reasoning": f"Based on {evidence_count} evidence sources, {docs_count} documents, {citations_count} citations",
-            "limitations": ["Rule-based assessment without LLM reasoning"]
+            "limitations": ["Ollama-based assessment"]
         }

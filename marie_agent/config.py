@@ -5,6 +5,10 @@ Configuration for MARIE agent system.
 import os
 from typing import Optional
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
 
 
 class LLMConfig(BaseModel):

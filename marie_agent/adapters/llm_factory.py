@@ -18,13 +18,34 @@ def create_llm_adapter() -> LLMPort:
     Create LLM adapter based on configuration.
     
     Returns:
-        LLMPort implementation (vLLM, Anthropic, or fallback)
+        LLMPort implementation (Ollama, vLLM, Anthropic, or fallback)
     """
     provider = config.llm.provider.lower()
     
     logger.info(f"Creating LLM adapter: {provider}")
     
-    if provider == "vllm":
+    if provider == "ollama":
+        try:
+            from marie_agent.adapters.ollama_adapter import OllamaAdapter
+            
+            logger.info("Attempting to initialize Ollama...")
+            adapter = OllamaAdapter(
+                model_name=config.llm.model,
+                temperature=config.llm.temperature
+            )
+            
+            if adapter.is_available():
+                logger.info("✓ Ollama adapter initialized successfully")
+                return adapter
+            else:
+                logger.warning("✗ Ollama not available, using fallback")
+                
+        except ImportError as e:
+            logger.warning(f"Ollama adapter not available: {e}")
+        except Exception as e:
+            logger.error(f"Error creating Ollama adapter: {e}", exc_info=True)
+    
+    elif provider == "vllm":
         try:
             from marie_agent.adapters.vllm_adapter import VLLMAdapter
             
