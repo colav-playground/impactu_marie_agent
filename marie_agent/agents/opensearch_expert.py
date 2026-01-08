@@ -19,6 +19,7 @@ from marie_agent.agents.prompt_engineer import get_prompt_engineer
 from marie_agent.adapters.llm_factory import get_llm_adapter
 from marie_agent.core.opensearch_manager import get_opensearch_client
 from marie_agent.core.exceptions import OpenSearchError, QueryGenerationError
+from marie_agent.core.cache import get_schema_cache, get_query_cache
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ class OpenSearchExpertAgent:
         self.index_prefix = config.opensearch.index_prefix
         self.llm = get_llm_adapter()
         self.prompt_engineer = get_prompt_engineer()
-        self.schema_cache = {}
+        self.schema_cache = get_schema_cache()  # Use global cache
         self.query_memory = QueryMemory()  # Add memory system
         self._ensure_query_log_index()  # Create index for logging
         logger.info("OpenSearch Expert agent initialized with reflexion and query logging")
@@ -206,6 +207,25 @@ class OpenSearchExpertAgent:
         """
         Inspect OpenSearch index structure and mappings.
         
+        Uses caching to avoid repeated expensive operations.
+        
+        Args:
+            index_pattern: Index pattern to inspect
+            
+        Returns:
+            Dictionary with index structure information
+        """
+        # Use cache with get_or_compute pattern
+        return self.schema_cache.get_or_compute(
+            key=f"schema:{index_pattern}",
+            compute_fn=lambda: self._compute_index_structure(index_pattern),
+            ttl=600  # Cache for 10 minutes
+        )
+    
+    def _compute_index_structure(self, index_pattern: str) -> Dict[str, Any]:
+        """
+        Actually compute index structure (called when not cached).
+        
         Args:
             index_pattern: Index pattern to inspect
             
@@ -213,11 +233,6 @@ class OpenSearchExpertAgent:
             Dictionary with index structure information
         """
         try:
-            # Check cache first
-            if index_pattern in self.schema_cache:
-                logger.debug(f"Using cached schema for {index_pattern}")
-                return self.schema_cache[index_pattern]
-            
             logger.info(f"🔍 Inspecting structure of {index_pattern}")
             
             # Get index mappings
@@ -258,8 +273,7 @@ class OpenSearchExpertAgent:
             except Exception as e:
                 logger.warning(f"Could not get sample document: {e}")
             
-            # Cache the structure
-            self.schema_cache[index_pattern] = structure
+            # No need to manually cache - handled by get_or_compute
             
             logger.info(f"✓ Inspected {len(structure['indices'])} indices, "
                        f"found {len(structure['common_fields'])} common fields")
