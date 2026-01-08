@@ -139,6 +139,13 @@ class ReportingAgent:
         data_context = "\n".join(context_parts)
         context["data_summary"] = data_context
         
+        # DEBUG: Log what data we have
+        logger.info(f"📊 Reporting with {len(documents)} docs, {len(metrics)} metrics")
+        if documents:
+            logger.info(f"📄 First document: {documents[0].get('title', 'N/A')[:50]}...")
+        if data_context:
+            logger.info(f"📝 Data context preview: {data_context[:200]}...")
+        
         # Build optimized prompt using Chain-of-Thought for synthesis
         task_description = f"Synthesize information from {len(documents)} documents and generate a comprehensive answer based on REAL DATA"
         optimized_prompt = prompt_engineer.build_prompt(
