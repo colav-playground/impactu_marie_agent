@@ -23,6 +23,7 @@ def create_llm_adapter() -> LLMPort:
     provider = config.llm.provider.lower()
     
     logger.info(f"Creating LLM adapter: {provider}")
+    logger.info(f"📦 Model from config: {config.llm.model}")
     
     if provider == "ollama":
         try:
