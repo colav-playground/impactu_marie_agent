@@ -28,7 +28,7 @@ class ReportingAgent:
     def generate_report(self, state: AgentState) -> AgentState:
         """
         Generate final report and answer.
-        Handles both research-based (RAG) and direct LLM responses.
+        Generates natural, contextual responses based on query type.
         
         Args:
             state: Current agent state
@@ -40,35 +40,12 @@ class ReportingAgent:
         
         try:
             query = state["user_query"]
-            needs_rag = state.get("needs_rag", True)
             
-            if not needs_rag:
-                # Direct LLM response for general knowledge queries
-                logger.info("Generating direct response (no RAG)")
-                answer = self._generate_direct_answer(query, state)
-                
-                state["final_answer"] = answer
-                state["response_mode"] = "direct"
-                state["status"] = "completed"
-                
-                add_audit_event(state, "report_generated", {
-                    "mode": "direct_llm",
-                    "needs_rag": False,
-                    "answer_length": len(answer)
-                })
-                
-            else:
-                # Research-based response with RAG
-                logger.info("Generating research report (with RAG)")
-                entities = state.get("entities_resolved", {})
-                metrics = state.get("computed_metrics", {})
-                citations = state.get("citations", [])
-                
-                # Build answer
-                answer = self._build_answer(query, entities, metrics)
-                
-                # Build full report
-                report = self._build_report(query, entities, metrics, citations)
+            # Always generate natural responses
+            logger.info("Generating natural contextual answer")
+            answer = self._generate_natural_answer(query, state)
+            report = answer
+            response_mode = "natural"
             
             # Calculate overall confidence
             confidence = self._calculate_confidence(state)
@@ -76,10 +53,11 @@ class ReportingAgent:
             state["final_answer"] = answer
             state["report"] = report
             state["confidence_score"] = confidence
+            state["response_mode"] = response_mode
             
             add_audit_event(state, "report_generated", {
+                "mode": response_mode,
                 "answer_length": len(answer),
-                "report_length": len(report),
                 "confidence": confidence
             })
             
@@ -95,6 +73,187 @@ class ReportingAgent:
             state["status"] = "failed"
         
         return state
+    
+    def _generate_natural_answer(self, query: str, state: AgentState) -> str:
+        """
+        Generate natural language answer that directly addresses the question.
+        Uses retrieved data as context but presents in flowing, natural text.
+        """
+        from marie_agent.adapters.llm_factory import create_llm_adapter
+        
+        # Get retrieved documents and metrics
+        evidence_map = state.get("evidence_map", {})
+        documents = evidence_map.get("evidence", [])
+        metrics = state.get("computed_metrics", {})
+        entities = state.get("entities_resolved", {})
+        
+        if not documents:
+            # No sources available, use LLM knowledge
+            llm = create_llm_adapter()
+            prompt = f"""Responde de forma clara y concisa a esta pregunta: {query}
+
+Proporciona una explicación natural y educativa en español."""
+            
+            response = llm.generate(prompt)
+            return response
+        
+        # Build context from documents and metrics
+        context_parts = []
+        
+        # Add entity context
+        institutions = entities.get("institutions", [])
+        if institutions:
+            inst_names = ", ".join([i["name"] for i in institutions[:2]])
+            context_parts.append(f"Institución(es): {inst_names}")
+        
+        # Add document info
+        context_parts.append(f"\nDocumentos encontrados: {len(documents)}")
+        
+        # Add top papers with details
+        context_parts.append("\nPapers más relevantes:")
+        for i, doc in enumerate(documents[:10], 1):
+            title = doc.get("title", "Unknown")
+            year = doc.get("year", "")
+            citations = doc.get("citations", 0)
+            authors = doc.get("authors", [])
+            
+            author_str = ""
+            if authors:
+                author_names = [a.get("full_name", "") for a in authors[:3]]
+                author_str = f" - Autores: {', '.join(filter(None, author_names))}"
+            
+            context_parts.append(f"{i}. {title} ({year}) - {citations} citas{author_str}")
+        
+        # Add metrics
+        total_citations = metrics.get("citation_stats", {}).get("total", 0)
+        avg_citations = metrics.get("citation_stats", {}).get("mean", 0)
+        context_parts.append(f"\nCitas totales: {total_citations}, Promedio: {avg_citations:.1f}")
+        
+        context = "\n".join(context_parts)
+        
+        # Generate natural answer using LLM
+        llm = create_llm_adapter()
+        prompt = f"""Eres un asistente de investigación. Responde esta pregunta usando EXCLUSIVAMENTE los datos proporcionados: {query}
+
+DATOS DISPONIBLES:
+{context}
+
+INSTRUCCIONES OBLIGATORIAS:
+- USA SOLO los datos proporcionados arriba
+- Si preguntan por investigadores, menciona los nombres de autores que aparecen en los papers
+- Si preguntan por papers/artículos, menciona los títulos y detalles que están en los datos
+- Si preguntan "cuántos", cuenta los documentos encontrados y da el número exacto
+- Si preguntan "quiénes", extrae y menciona los nombres de autores de los papers
+- Responde en español de forma conversacional y directa
+- NO inventes información que no esté en los datos
+- Escribe máximo 3 párrafos cortos
+- Se específico y usa números/nombres de los datos
+
+Respuesta basada en los datos:"""
+        
+        response = llm.generate(prompt, max_tokens=600)
+        
+        # Append top references (only the most relevant ones)
+        if documents and len(documents) >= 3:
+            response += "\n\n---\n\n**Papers principales mencionados:**\n"
+            for i, doc in enumerate(documents[:3], 1):
+                title = doc.get("title", "Unknown")
+                year = doc.get("year", "")
+                doi = doc.get("doi", "")
+                response += f"\n• {title} ({year})"
+                if doi:
+                    response += f" - {doi}"
+        
+        return response
+    
+    def _is_conceptual_query(self, query: str) -> bool:
+        """
+        Determine if query is asking for concept definition/explanation.
+        
+        Examples:
+        - "¿Qué es machine learning?"
+        - "Define inteligencia artificial"
+        - "Explica qué es deep learning"
+        """
+        query_lower = query.lower()
+        
+        conceptual_patterns = [
+            "qué es", "que es",
+            "define", "defin",
+            "explica", "explain",
+            "qué significa", "que significa",
+            "cómo funciona", "como funciona",
+            "what is", "what's",
+            "how does", "how do"
+        ]
+        
+        return any(pattern in query_lower for pattern in conceptual_patterns)
+    
+    def _generate_conceptual_answer(self, query: str, state: AgentState) -> str:
+        """
+        Generate natural language explanation for conceptual queries.
+        Uses retrieved papers as sources but presents in flowing text.
+        """
+        from marie_agent.adapters.llm_factory import create_llm_adapter
+        
+        # Get retrieved documents
+        evidence_map = state.get("evidence_map", {})
+        documents = evidence_map.get("evidence", [])
+        
+        if not documents:
+            # No sources available, use LLM knowledge
+            llm = create_llm_adapter()
+            prompt = f"""Responde de forma clara y concisa a esta pregunta: {query}
+
+Proporciona una explicación natural y educativa en español."""
+            
+            response = llm.generate(prompt)
+            return response
+        
+        # Build context from documents
+        context_parts = []
+        for i, doc in enumerate(documents[:5], 1):
+            title = doc.get("title", "Unknown")
+            abstract = doc.get("abstract", "")
+            year = doc.get("year", "")
+            
+            if abstract:
+                context_parts.append(f"[{i}] {title} ({year}): {abstract[:300]}...")
+        
+        context = "\n\n".join(context_parts) if context_parts else "No hay contexto disponible."
+        
+        # Generate natural answer using LLM
+        llm = create_llm_adapter()
+        prompt = f"""Basándote en los siguientes papers de investigación, responde esta pregunta de forma natural y fluida: {query}
+
+Papers disponibles:
+{context}
+
+INSTRUCCIONES:
+- Responde en español de forma natural, como si explicaras a un colega
+- Usa la información de los papers cuando sea relevante
+- Cita los papers entre corchetes [1], [2], etc. cuando uses su información
+- NO hagas una lista de papers
+- NO uses formato de reporte estructurado
+- Genera un texto fluido y coherente de 2-3 párrafos máximo
+- Sé conciso y directo
+
+Respuesta:"""
+        
+        response = llm.generate(prompt, max_tokens=600)
+        
+        # Append references only if we used papers
+        if context_parts:
+            response += "\n\n---\n\n**Referencias:**\n"
+            for i, doc in enumerate(documents[:5], 1):
+                title = doc.get("title", "Unknown")
+                year = doc.get("year", "")
+                doi = doc.get("doi", "")
+                response += f"\n[{i}] {title} ({year})"
+                if doi:
+                    response += f" - DOI: {doi}"
+        
+        return response
     
     def _build_answer(
         self,

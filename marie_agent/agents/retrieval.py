@@ -72,6 +72,7 @@ class RetrievalAgent:
             # 4. Update state
             state["retrieved_data"] = opensearch_results
             state["evidence_map"]["opensearch_results"] = evidence_items
+            state["evidence_map"]["evidence"] = evidence_items  # Also store in standard location
             
             add_audit_event(state, "retrieval_completed", {
                 "opensearch_hits": len(opensearch_results),
@@ -166,18 +167,90 @@ class RetrievalAgent:
         now = datetime.utcnow().isoformat()
         
         for result in results:
+            source = result["source"]
+            text = source.get("text", "")
+            
+            # Parse text to extract structured data
+            parsed = self._parse_document_text(text)
+            
+            #  Store parsed data in evidence
             evidence = Evidence(
                 source_type="opensearch",
                 source_id=result["id"],
                 collection=result["index"],
                 reference=f"opensearch:{result['index']}/{result['id']}",
-                content=result["source"].get("text", "")[:500],  # Truncate
+                content=text[:500],  # Truncate for storage
                 confidence=float(result["score"]) / 10.0,  # Normalize score
                 timestamp=now
             )
             evidence_items.append(evidence)
+            
+            # Also create a dict version with parsed fields for easy access
+            evidence_items[-1].update({
+                "title": parsed.get("title", "Unknown"),
+                "abstract": parsed.get("abstract", ""),
+                "authors": parsed.get("authors", []),
+                "year": parsed.get("year", ""),
+                "citations": 0  # TODO: Get from source if available
+            })
         
         return evidence_items
+    
+    def _parse_document_text(self, text: str) -> Dict[str, Any]:
+        """
+        Parse the text field to extract structured information.
+        
+        Args:
+            text: The text content from OpenSearch
+            
+        Returns:
+            Dictionary with parsed fields
+        """
+        parsed = {
+            "title": "",
+            "abstract": "",
+            "authors": [],
+            "year": ""
+        }
+        
+        lines = text.split("\n")
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Extract title
+            if line.startswith("Title:"):
+                # Take first variant before |
+                title_part = line.replace("Title:", "").strip()
+                if "|" in title_part:
+                    parsed["title"] = title_part.split("|")[0].strip()
+                else:
+                    parsed["title"] = title_part
+            
+            # Extract abstract
+            elif line.startswith("Abstract:"):
+                abstract = line.replace("Abstract:", "").strip()
+                # Remove language tags like [en], [es]
+                if abstract.startswith("["):
+                    abstract = abstract[abstract.find("]")+1:].strip()
+                parsed["abstract"] = abstract
+            
+            # Extract authors
+            elif line.startswith("Authors:"):
+                author_str = line.replace("Authors:", "").strip()
+                # Simple split by commas (can be improved)
+                if "(" in author_str:
+                    # Format: "Name (Institution)"
+                    author_name = author_str.split("(")[0].strip()
+                    parsed["authors"] = [{"full_name": author_name}]
+                else:
+                    parsed["authors"] = [{"full_name": author_str}]
+            
+            # Extract year
+            elif line.startswith("Year:"):
+                parsed["year"] = line.replace("Year:", "").strip()
+        
+        return parsed
 
 
 def retrieval_agent_node(state: AgentState) -> AgentState:

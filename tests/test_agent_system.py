@@ -16,17 +16,36 @@ from marie_agent.graph import create_marie_graph
 from marie_agent.state import create_initial_state
 from marie_agent.config import config
 
-# Configure logging - suppress all logs except CRITICAL
+# Configure logging - capture INFO for agent flow but suppress output
 logging.basicConfig(
-    level=logging.CRITICAL,
-    format='%(message)s'
+    level=logging.INFO,
+    format='%(message)s',
+    handlers=[logging.NullHandler()]
 )
+
+# Create a custom handler to capture agent flow
+agent_steps = []
+
+class AgentFlowHandler(logging.Handler):
+    def emit(self, record):
+        msg = record.getMessage()
+        if "Routing to:" in msg:
+            agent = msg.split("Routing to:")[1].strip()
+            agent_steps.append(agent)
+
+# Add handler to orchestrator logger
+orchestrator_logger = logging.getLogger("marie_agent.orchestrator")
+orchestrator_logger.addHandler(AgentFlowHandler())
+orchestrator_logger.setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 
 
 def test_query(graph, query: str):
     """Test a single query."""
+    global agent_steps
+    agent_steps = []  # Reset for each query
+    
     print(f"\n{'='*100}")
     print(f"📝 PREGUNTA: {query}")
     print(f"{'='*100}\n")
@@ -36,13 +55,40 @@ def test_query(graph, query: str):
         request_id = str(uuid.uuid4())
         state = create_initial_state(query, request_id)
         
-        # Run the graph (suppress output)
+        # Run the graph
         result_state = graph.invoke(state)
         
-        # Extract response from top-level keys
+        # Show the workflow steps
+        print(f"🔄 FLUJO DE AGENTES:\n")
+        
+        if agent_steps:
+            agent_emojis = {
+                "entity_resolution": "🏛️",
+                "retrieval": "🔍",
+                "metrics": "📊",
+                "reporting": "📝",
+                "validation": "✓",
+                "human_interaction": "🙋",
+                "end": "🏁"
+            }
+            
+            # Filter out citations from display
+            filtered_steps = [s for s in agent_steps if s != "citations"]
+            
+            for i, agent in enumerate(filtered_steps, 1):
+                if agent == "end":
+                    print(f"  {i}. 🏁 Finalizado")
+                else:
+                    emoji = agent_emojis.get(agent, "🤖")
+                    name = agent.replace('_', ' ').title()
+                    print(f"  {i}. {emoji} {name}")
+        else:
+            print(f"  (No se capturaron pasos)")
+        
+        # Extract response
         response = result_state.get("final_answer") or result_state.get("report") or "No response generated"
         
-        print(f"🤖 RESPUESTA:\n")
+        print(f"\n🤖 RESPUESTA:\n")
         print(response)
         print(f"\n{'='*100}\n")
         

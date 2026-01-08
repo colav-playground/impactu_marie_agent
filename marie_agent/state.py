@@ -69,6 +69,8 @@ class AgentState(TypedDict):
     # Planning
     plan: Optional[Plan]
     current_step: int
+    parsed_query: Optional[Dict[str, Any]]  # Parsed query with intent
+    needs_rag: Optional[bool]  # Whether RAG is needed
     
     # Tasks and execution
     tasks: List[Task]
@@ -92,12 +94,17 @@ class AgentState(TypedDict):
     confidence_score: Optional[float]
     confidence_assessment: Optional[Dict[str, Any]]
     
+    # Magentic additions
+    quality_report: Optional[Dict[str, Any]]  # Quality evaluation
+    refinement_count: Optional[int]  # Number of plan refinements
+    replan_reason: Optional[str]  # Why replanning was triggered
+    
     # Audit trail
     audit_log: List[Dict[str, Any]]
     
     # Control flow
     next_agent: Optional[str]
-    status: Literal["planning", "executing", "waiting_human", "completed", "failed"]
+    status: Literal["planning", "executing", "replanning", "ready_for_quality_check", "waiting_human", "completed", "failed"]
     error: Optional[str]
 
 
@@ -121,6 +128,8 @@ def create_initial_state(user_query: str, request_id: str) -> AgentState:
         updated_at=now,
         plan=None,
         current_step=0,
+        parsed_query=None,
+        needs_rag=None,
         tasks=[],
         evidence_map={},
         human_interactions=[],
@@ -133,6 +142,9 @@ def create_initial_state(user_query: str, request_id: str) -> AgentState:
         report=None,
         confidence_score=None,
         confidence_assessment=None,
+        quality_report=None,
+        refinement_count=0,
+        replan_reason=None,
         audit_log=[
             {
                 "timestamp": now,

@@ -38,20 +38,22 @@ class MetricsAgent:
         logger.info("Computing metrics from retrieved data")
         
         try:
-            retrieved_data = state.get("retrieved_data", [])
+            # Get evidence items (parsed documents)
+            evidence_map = state.get("evidence_map", {})
+            documents = evidence_map.get("evidence", [])
             
-            if not retrieved_data:
+            if not documents:
                 logger.warning("No data to compute metrics from")
-                state["next_agent"] = "citations"
+                state["next_agent"] = "reporting"
                 return state
             
-            # Compute various metrics
+            # Compute various metrics using parsed fields
             metrics = {
-                "total_documents": len(retrieved_data),
-                "by_type": self._count_by_type(retrieved_data),
-                "by_year": self._count_by_year(retrieved_data),
-                "citation_stats": self._compute_citation_stats(retrieved_data),
-                "top_cited": self._get_top_cited(retrieved_data, limit=5)
+                "total_documents": len(documents),
+                "by_type": self._count_by_type(documents),
+                "by_year": self._count_by_year(documents),
+                "citation_stats": self._compute_citation_stats(documents),
+                "top_cited": self._get_top_cited(documents, limit=5)
             }
             
             state["computed_metrics"] = metrics
@@ -62,7 +64,7 @@ class MetricsAgent:
                 "top_cited_count": len(metrics["top_cited"])
             })
             
-            state["next_agent"] = "citations"
+            state["next_agent"] = "reporting"  # Skip citations
             
             logger.info(f"Computed metrics for {metrics['total_documents']} documents")
             
@@ -78,7 +80,8 @@ class MetricsAgent:
         """Count documents by type."""
         counts = defaultdict(int)
         for doc in data:
-            work_type = doc.get("source", {}).get("work_type", "unknown")
+            # Try multiple possible fields for type
+            work_type = doc.get("type") or doc.get("work_type", "unknown")
             counts[work_type] += 1
         return dict(counts)
     
@@ -86,8 +89,9 @@ class MetricsAgent:
         """Count documents by year."""
         counts = defaultdict(int)
         for doc in data:
-            year = doc.get("source", {}).get("year")
-            if year:
+            # Use parsed year field
+            year = doc.get("year")
+            if year and str(year).isdigit():
                 counts[int(year)] += 1
         return dict(sorted(counts.items()))
     
@@ -95,9 +99,10 @@ class MetricsAgent:
         """Compute citation statistics."""
         citations = []
         for doc in data:
-            cites = doc.get("source", {}).get("citations_count")
-            if cites is not None:
-                citations.append(cites)
+            # Use parsed citations field
+            cites = doc.get("citations") or doc.get("citations_count", 0)
+            if cites is not None and isinstance(cites, (int, float)):
+                citations.append(int(cites))
         
         if not citations:
             return {"available": False}
@@ -112,23 +117,23 @@ class MetricsAgent:
     
     def _get_top_cited(self, data: List[Dict[str, Any]], limit: int = 5) -> List[Dict[str, Any]]:
         """Get top cited documents."""
-        # Sort by citations
+        # Sort by citations using parsed fields
         sorted_docs = sorted(
             data,
-            key=lambda x: x.get("source", {}).get("citations_count", 0),
+            key=lambda x: x.get("citations", 0) or 0,
             reverse=True
         )
         
         top_docs = []
         for doc in sorted_docs[:limit]:
-            source = doc.get("source", {})
+            # Use parsed fields directly
             top_docs.append({
-                "id": doc.get("id"),
-                "title": source.get("title", "Unknown"),
-                "year": source.get("year"),
-                "citations": source.get("citations_count"),
-                "authors": source.get("authors", "")[:100],  # Truncate
-                "doi": source.get("doi")
+                "id": doc.get("source_id"),
+                "title": doc.get("title", "Unknown"),
+                "year": doc.get("year"),
+                "citations": doc.get("citations", 0),
+                "authors": doc.get("authors", []),
+                "doi": doc.get("doi")
             })
         
         return top_docs
