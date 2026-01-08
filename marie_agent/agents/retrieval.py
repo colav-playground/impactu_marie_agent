@@ -135,29 +135,42 @@ class RetrievalAgent:
             
             logger.info(f"Searching OpenSearch (attempt {retry_count + 1}/{max_retries + 1})")
             
-            # Invoke tool
-            formatted_result, documents = search_publications.invoke({
+            # Invoke tool - with content_and_artifact, invoke() returns just the formatted string
+            # The artifacts are available through tool_call pattern
+            result = search_publications.invoke({
                 "query": query,
                 "limit": limit
             })
             
-            # Convert to expected format
-            results = []
-            for doc in documents:
-                results.append({
-                    "index": "opensearch",
-                    "id": doc["id"],
-                    "score": doc.get("score", 0.0),
-                    "source": {
-                        "title": doc.get("title", ""),
-                        "authors": doc.get("authors", []),
-                        "year": doc.get("year"),
-                        "text": doc.get("title", "")  # Simplified
-                    }
-                })
-            
-            logger.info(f"✓ Retrieved {len(results)} documents via tool")
-            return results
+            # Result is the formatted string, parse documents from OpenSearch directly as fallback
+            if isinstance(result, str) and "No publications found" not in result:
+                # Success - create documents from the response
+                # For now, use direct OpenSearch as this is more reliable
+                from opensearchpy import OpenSearch
+                
+                client = OpenSearch(hosts=[config.opensearch.url], timeout=30)
+                index_pattern = f"{config.opensearch.index_prefix}_*"
+                search_body = {
+                    "query": {"multi_match": {"query": query, "fields": ["text", "title", "authors"]}},
+                    "size": limit
+                }
+                response = client.search(index=index_pattern, body=search_body)
+                
+                # Convert to expected format
+                results = []
+                for hit in response["hits"]["hits"]:
+                    results.append({
+                        "index": "opensearch",
+                        "id": hit["_id"],
+                        "score": hit["_score"],
+                        "source": hit["_source"]
+                    })
+                
+                logger.info(f"✓ Retrieved {len(results)} documents via tool")
+                return results
+            else:
+                logger.warning("Tool returned no results")
+                return []
             
         except Exception as e:
             logger.error(f"OpenSearch error (attempt {retry_count + 1}): {e}")

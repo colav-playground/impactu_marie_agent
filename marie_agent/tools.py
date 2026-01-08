@@ -28,12 +28,10 @@ def search_publications(query: str, limit: int = 10) -> Tuple[str, List[Dict]]:
         Tuple of (formatted_string, raw_documents)
     """
     try:
-        # Connect to OpenSearch
+        # Connect to OpenSearch using URL
         client = OpenSearch(
-            hosts=[{"host": config.opensearch.host, "port": config.opensearch.port}],
-            http_auth=(config.opensearch.username, config.opensearch.password),
-            use_ssl=config.opensearch.use_ssl,
-            verify_certs=config.opensearch.verify_certs
+            hosts=[config.opensearch.url],
+            timeout=30
         )
         
         # Search across all indices
