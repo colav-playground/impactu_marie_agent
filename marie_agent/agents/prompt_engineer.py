@@ -196,15 +196,27 @@ Your output:"""
         """
         query = context.get("query", "")
         
-        # Detect language
-        is_spanish = any(word in query.lower() for word in ['qué', 'cuántos', 'cómo', 'dónde', 'hola', 'gracias'])
-        lang_instruction = "Responde en español." if is_spanish else "Respond in English."
+        # Detect language with more keywords
+        spanish_words = ['qué', 'cuántos', 'cómo', 'dónde', 'cuál', 'cuáles', 'por qué', 'para qué',
+                        'hola', 'gracias', 'buenos días', 'buenas tardes', 'haz', 'dame', 'muestra',
+                        'universidad', 'investigador', 'papers', 'artículos', 'publicaciones']
         
-        prompt = f"""You are the {agent_name} agent. Think step by step.
+        is_spanish = any(word in query.lower() for word in spanish_words)
+        
+        if is_spanish:
+            lang_instruction = "IMPORTANT: Respond ONLY in Spanish. Do not use English."
+            system_msg = "Eres un asistente experto en español."
+        else:
+            lang_instruction = "Respond in English."
+            system_msg = "You are an expert assistant."
+        
+        prompt = f"""{system_msg}
+
+You are the {agent_name} agent. Think step by step.
 
 Task: {task_description}
 User Query: "{query}"
-Language: {lang_instruction}
+{lang_instruction}
 
 Context:
 {self._format_context(context)}
