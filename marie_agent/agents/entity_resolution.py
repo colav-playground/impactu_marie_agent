@@ -57,26 +57,54 @@ class EntityResolutionAgent:
         logger.info(f"Resolving entities for: {query}")
         
         try:
-            # Use Prompt Engineer to build entity extraction prompt
+            # Use Prompt Engineer + Language Detector for NER
             from marie_agent.agents.prompt_engineer import get_prompt_engineer
             from marie_agent.adapters.llm_factory import get_llm_adapter
+            from marie_agent.services.language_detector import get_language_detector
             
             prompt_engineer = get_prompt_engineer()
             llm = get_llm_adapter()
+            lang_detector = get_language_detector()
             
-            # Build few-shot prompt for entity extraction
-            context = {"query": query}
+            # Detect language for better extraction
+            detected_lang = lang_detector.detect(query)
+            
+            # Prepare context with language info
+            context = {
+                "query": query,
+                "language": detected_lang,
+                "task": "extract_entities"
+            }
+            
+            # Build few-shot NER prompt
+            ner_examples = [
+                {
+                    "input": "papers from Universidad de Antioquia",
+                    "output": "INSTITUTION: Universidad de Antioquia"
+                },
+                {
+                    "input": "publications by John Smith",
+                    "output": "PERSON: John Smith"
+                },
+                {
+                    "input": "research at MIT",
+                    "output": "INSTITUTION: MIT"
+                }
+            ]
+            
             extraction_prompt = prompt_engineer.build_prompt(
                 agent_name="entity_resolution",
-                task_description="Extract institution and author names from the query",
+                task_description="Extract institutions, authors, and topics from query",
                 context=context,
-                technique="few-shot"  # Use few-shot for pattern matching
+                technique="few-shot",
+                examples=ner_examples
             )
             
             # Extract entities using LLM
             llm_response = llm.generate(extraction_prompt, max_tokens=200)
+            logger.debug(f"NER response: {llm_response}")
             
-            # Parse LLM response and resolve against database
+            # Parse response and resolve against database
             entities = {
                 "institutions": self._resolve_institutions(query, llm_response),
                 "authors": self._resolve_authors(query, llm_response),

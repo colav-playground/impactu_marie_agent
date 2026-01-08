@@ -196,19 +196,27 @@ Your output:"""
         """
         query = context.get("query", "")
         
-        # Detect language with more keywords
-        spanish_words = ['qué', 'cuántos', 'cómo', 'dónde', 'cuál', 'cuáles', 'por qué', 'para qué',
-                        'hola', 'gracias', 'buenos días', 'buenas tardes', 'haz', 'dame', 'muestra',
-                        'universidad', 'investigador', 'papers', 'artículos', 'publicaciones']
+        # Use Language Detector Service
+        from marie_agent.services.language_detector import get_language_detector
         
-        is_spanish = any(word in query.lower() for word in spanish_words)
+        lang_detector = get_language_detector()
+        detected_lang = lang_detector.detect(query)
         
-        if is_spanish:
+        # Set language instruction
+        if detected_lang == "es":
             lang_instruction = "IMPORTANT: Respond ONLY in Spanish. Do not use English."
             system_msg = "Eres un asistente experto en español."
+        elif detected_lang == "pt":
+            lang_instruction = "IMPORTANT: Respond ONLY in Portuguese."
+            system_msg = "Você é um assistente especializado."
+        elif detected_lang == "fr":
+            lang_instruction = "IMPORTANT: Respond ONLY in French."
+            system_msg = "Vous êtes un assistant expert."
         else:
             lang_instruction = "Respond in English."
             system_msg = "You are an expert assistant."
+        
+        logger.debug(f"Detected language: {detected_lang}")
         
         prompt = f"""{system_msg}
 
