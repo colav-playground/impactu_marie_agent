@@ -68,7 +68,7 @@ class SystemConstants:
 class LLMConfig(BaseModel):
     """LLM configuration."""
     provider: str = Field(default="ollama", description="LLM provider (ollama, vllm, anthropic)")
-    model: str = Field(default="qwen2.5:latest", description="Model name")
+    model: str = Field(default="nemotron-3-nano:latest", description="Model name")
     temperature: float = Field(default=0.1, description="Temperature for generation")
     max_tokens: int = Field(default=4096, description="Max tokens for response")
     api_key: Optional[str] = Field(default=None, description="API key")

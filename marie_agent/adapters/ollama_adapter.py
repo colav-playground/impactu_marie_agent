@@ -27,7 +27,7 @@ class OllamaAdapter(LLMPort):
     
     def __init__(
         self,
-        model_name: str = "qwen2:1.5b",
+        model_name: str = "nemotron-3-nano:latest",
         base_url: str = "http://localhost:11434",
         temperature: float = 0.1
     ):
