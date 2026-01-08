@@ -13,6 +13,8 @@ import logging
 from opensearchpy import OpenSearch
 from sentence_transformers import SentenceTransformer
 
+from marie_agent.config import config, OpenSearchIndices, SystemConstants
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,15 +30,15 @@ class OpenSearchMemory:
     
     def __init__(
         self,
-        opensearch_url: str = "http://localhost:9200",
-        index_name: str = "impactu_marie_agent_memory",
+        opensearch_url: Optional[str] = None,
+        index_name: str = OpenSearchIndices.AGENT_MEMORY,
         embedding_model: str = "BAAI/bge-m3"
     ):
         """
         Initialize OpenSearch memory.
         
         Args:
-            opensearch_url: OpenSearch endpoint
+            opensearch_url: OpenSearch endpoint (defaults to config)
             index_name: Index name for this memory type
             embedding_model: Model for generating embeddings
         """

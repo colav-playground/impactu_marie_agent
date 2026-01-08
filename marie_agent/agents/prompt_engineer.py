@@ -26,7 +26,9 @@ from opensearchpy import OpenSearch
 
 from marie_agent.state import AgentState
 from marie_agent.adapters.llm_factory import get_llm_adapter
-from marie_agent.config import config
+from marie_agent.config import config, OpenSearchIndices, AgentConstants, SystemConstants
+from marie_agent.core.opensearch_manager import get_opensearch_client
+from marie_agent.core.exceptions import PromptGenerationError
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ class PromptAttempt:
 class PromptMemory:
     """Memory system for storing successful prompt patterns."""
     
-    def __init__(self, max_size: int = 100):
+    def __init__(self, max_size: int = AgentConstants.MEMORY_MAX_SIZE):
         self.attempts: List[PromptAttempt] = []
         self.max_size = max_size
         self.successful_patterns: Dict[str, List[str]] = {}
@@ -90,14 +92,14 @@ class PromptEngineerService:
     - Prompt logging
     """
     
-    MAX_ITERATIONS = 2  # Max refinement attempts
-    PROMPT_LOG_INDEX = "impactu_marie_agent_prompt_logs"
+    MAX_ITERATIONS = AgentConstants.PROMPT_MAX_ITERATIONS
+    PROMPT_LOG_INDEX = OpenSearchIndices.PROMPT_LOGS
     
     def __init__(self):
         """Initialize Prompt Engineer Service with reflexion."""
         self.llm = get_llm_adapter()
         self.memory = PromptMemory()
-        self.client = OpenSearch(hosts=[config.opensearch.url], timeout=30)
+        self.client = get_opensearch_client()  # Use singleton manager
         self._ensure_prompt_log_index()
         logger.info("Prompt Engineer Service initialized with reflexion")
     
@@ -156,10 +158,10 @@ class PromptEngineerService:
         - Not too short or too long
         - Contains task description
         """
-        if not prompt or len(prompt) < 50:
+        if not prompt or len(prompt) < AgentConstants.PROMPT_MIN_LENGTH:
             return False
         
-        if len(prompt) > 5000:
+        if len(prompt) > AgentConstants.PROMPT_MAX_LENGTH:
             logger.warning("Prompt too long, might be inefficient")
             return False
         

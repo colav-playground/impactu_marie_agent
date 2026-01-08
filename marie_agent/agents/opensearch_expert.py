@@ -14,9 +14,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from marie_agent.state import AgentState, add_audit_event
-from marie_agent.config import config
+from marie_agent.config import config, OpenSearchIndices, AgentConstants, SystemConstants
 from marie_agent.agents.prompt_engineer import get_prompt_engineer
 from marie_agent.adapters.llm_factory import get_llm_adapter
+from marie_agent.core.opensearch_manager import get_opensearch_client
+from marie_agent.core.exceptions import OpenSearchError, QueryGenerationError
 
 logger = logging.getLogger(__name__)
 
@@ -124,13 +126,13 @@ class OpenSearchExpertAgent:
     6. LOG: Save query to OpenSearch for analytics
     """
     
-    MAX_ITERATIONS = 3  # Maximum refinement attempts
-    MIN_RESULTS_THRESHOLD = 3  # Minimum results to consider success
-    QUERY_LOG_INDEX = "impactu_marie_agent_query_logs"  # Index for query logging
+    MAX_ITERATIONS = AgentConstants.OPENSEARCH_MAX_ITERATIONS
+    MIN_RESULTS_THRESHOLD = AgentConstants.OPENSEARCH_MIN_RESULTS
+    QUERY_LOG_INDEX = OpenSearchIndices.QUERY_LOGS
     
     def __init__(self):
         """Initialize OpenSearch expert with memory and query logging."""
-        self.client = OpenSearch(hosts=[config.opensearch.url], timeout=30)
+        self.client = get_opensearch_client()  # Use singleton manager
         self.index_prefix = config.opensearch.index_prefix
         self.llm = get_llm_adapter()
         self.prompt_engineer = get_prompt_engineer()

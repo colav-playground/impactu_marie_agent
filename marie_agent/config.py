@@ -1,5 +1,7 @@
 """
 Configuration for MARIE agent system.
+
+Centralizes ALL configuration values to avoid hardcoded constants.
 """
 
 import os
@@ -9,6 +11,58 @@ from dotenv import load_dotenv
 
 # Load .env file
 load_dotenv()
+
+
+# ============================================================================
+# CONSTANTS - OpenSearch Indices
+# ============================================================================
+class OpenSearchIndices:
+    """OpenSearch index names following naming standard: impactu_marie_agent_*"""
+    QUERY_LOGS = "impactu_marie_agent_query_logs"
+    PROMPT_LOGS = "impactu_marie_agent_prompt_logs"
+    PLAN_MEMORY = "impactu_marie_agent_plan_memory"
+    EPISODIC_MEMORY = "impactu_marie_agent_episodic_memory"
+    AGENT_MEMORY = "impactu_marie_agent_memory"
+
+
+# ============================================================================
+# CONSTANTS - Agent Parameters
+# ============================================================================
+class AgentConstants:
+    """Constants for agent behavior"""
+    # OpenSearch Expert
+    OPENSEARCH_MAX_ITERATIONS = 3  # Max query refinement attempts
+    OPENSEARCH_MIN_RESULTS = 3     # Minimum results to consider success
+    OPENSEARCH_TIMEOUT = 30        # Seconds
+    
+    # Prompt Engineer
+    PROMPT_MAX_ITERATIONS = 2      # Max prompt refinement attempts
+    PROMPT_MIN_LENGTH = 50         # Minimum prompt length (chars)
+    PROMPT_MAX_LENGTH = 5000       # Maximum prompt length (chars)
+    PROMPT_PREVIEW_LENGTH = 1000   # Length of prompt to log (chars)
+    
+    # Memory
+    MEMORY_MAX_SIZE = 100          # Max items in memory
+    
+    # LLM Generation
+    LLM_DEFAULT_MAX_TOKENS = 512   # Default for most operations
+    LLM_LONG_MAX_TOKENS = 1024     # For longer responses
+    
+    # Confidence
+    DEFAULT_CONFIDENCE = 0.8       # Default confidence score
+    
+    # Retrieval
+    DEFAULT_LIMIT = 10             # Default documents to retrieve
+
+
+# ============================================================================
+# CONSTANTS - Timeouts & Limits
+# ============================================================================
+class SystemConstants:
+    """System-wide constants"""
+    OPENSEARCH_TIMEOUT = 30        # OpenSearch operation timeout (seconds)
+    MONGODB_TIMEOUT = 10           # MongoDB operation timeout (seconds)
+    HTTP_TIMEOUT = 30              # HTTP request timeout (seconds)
 
 
 class LLMConfig(BaseModel):
