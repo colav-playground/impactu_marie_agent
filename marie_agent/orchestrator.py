@@ -29,6 +29,80 @@ class OrchestratorAgent:
     - Evaluate goal completion
     """
     
+    def _needs_research_data(self, parsed_query: Dict[str, Any]) -> bool:
+        """
+        Determine if query requires database access (RAG).
+        
+        Args:
+            parsed_query: Parsed query with intent, entities, etc.
+            
+        Returns:
+            True if RAG pipeline needed, False for direct LLM response
+        """
+        # Check for specific entity mentions
+        entities = parsed_query.get("entities", {})
+        if entities.get("institutions") or entities.get("authors") or entities.get("groups"):
+            logger.info("RAG needed: Specific entities mentioned")
+            return True
+        
+        # Check intent
+        intent = parsed_query.get("intent", "")
+        
+        # Research-heavy intents
+        research_intents = [
+            "top_papers",
+            "author_productivity", 
+            "collaboration_network",
+            "institution_ranking",
+            "metrics_analysis",
+            "citation_analysis",
+            "research_trends"
+        ]
+        
+        if any(ri in intent for ri in research_intents):
+            logger.info(f"RAG needed: Research intent detected - {intent}")
+            return True
+        
+        # Check for quantitative requests
+        query_lower = parsed_query.get("original_query", "").lower()
+        quantitative_keywords = [
+            "how many papers",
+            "top cited",
+            "most productive",
+            "h-index",
+            "impact factor",
+            "citation count",
+            "compare productivity"
+        ]
+        
+        if any(kw in query_lower for kw in quantitative_keywords):
+            logger.info("RAG needed: Quantitative analysis requested")
+            return True
+        
+        # Check for specific artifact requests
+        if parsed_query.get("artifact_type") in ["paper", "patent", "dataset", "software"]:
+            logger.info("RAG needed: Specific artifact type requested")
+            return True
+        
+        # General knowledge queries - no RAG needed
+        general_intents = [
+            "explanation",
+            "definition",
+            "how_to",
+            "opinion",
+            "recommendation",
+            "greeting"
+        ]
+        
+        if any(gi in intent for gi in general_intents):
+            logger.info(f"No RAG needed: General knowledge intent - {intent}")
+            return False
+        
+        # Default: try to detect if question is general or research-specific
+        # If unsure, prefer direct response for better UX
+        logger.info("No clear research indicators - using direct LLM response")
+        return False
+    
     def __init__(self, confidence_threshold: float = 0.7):
         """
         Initialize orchestrator.
@@ -41,13 +115,13 @@ class OrchestratorAgent:
         
     def plan(self, state: AgentState) -> AgentState:
         """
-        Create resolution plan for the user query.
+        Create resolution plan for the user query with intelligent RAG decision.
         
         Args:
             state: Current agent state
             
         Returns:
-            Updated state with plan
+            Updated state with plan and routing
         """
         logger.info(f"Planning for query: {state['user_query']}")
         
@@ -57,34 +131,61 @@ class OrchestratorAgent:
             
             # Parse query to understand intent
             parsed_query = llm.parse_query(state["user_query"])
+            parsed_query["original_query"] = state["user_query"]
             logger.info(f"Query intent: {parsed_query.get('intent')}")
             
-            # Create execution plan
-            plan = llm.create_plan(state["user_query"], parsed_query)
-            
-            # Check if plan requires human collaboration
-            if plan.get("requires_human_input") and config.enable_human_interaction:
-                logger.info("Plan requires human input - requesting co-planning")
-                
-                # Request human collaboration on plan
-                modified_plan = self.human_manager.request_co_planning(
-                    state,
-                    proposed_plan=plan,
-                    reason="Complex query requires human guidance"
-                )
-                
-                if modified_plan:
-                    plan = modified_plan
-                elif state["status"] == "waiting_human":
-                    # Human input needed, pause execution
-                    logger.info("Waiting for human co-planning input")
-                    return state
-            
-            # Store in state
-            state["plan"] = plan
+            # Decide if RAG is needed
+            needs_rag = self._needs_research_data(parsed_query)
+            state["needs_rag"] = needs_rag
             state["parsed_query"] = parsed_query
-            state["status"] = "executing"
-            state["next_agent"] = plan["agents_required"][0] if plan["agents_required"] else None
+            
+            if needs_rag:
+                # Research query - activate full RAG pipeline
+                logger.info("🔬 Research query - activating RAG pipeline")
+                
+                # Create execution plan
+                plan = llm.create_plan(state["user_query"], parsed_query)
+                
+                # Check if plan requires human collaboration
+                if plan.get("requires_human_input") and config.enable_human_interaction:
+                    logger.info("Plan requires human input - requesting co-planning")
+                    
+                    modified_plan = self.human_manager.request_co_planning(
+                        state,
+                        proposed_plan=plan,
+                        reason="Complex query requires human guidance"
+                    )
+                    
+                    if modified_plan:
+                        plan = modified_plan
+                    elif state["status"] == "waiting_human":
+                        logger.info("Waiting for human co-planning input")
+                        return state
+                
+                # Store in state
+                state["plan"] = plan
+                state["status"] = "executing"
+                state["next_agent"] = plan["agents_required"][0] if plan["agents_required"] else None
+                
+                add_audit_event(state, "plan_created", {
+                    "mode": "research_rag",
+                    "steps": len(plan.get("steps", [])),
+                    "needs_rag": True
+                })
+                
+            else:
+                # General knowledge query - direct LLM response
+                logger.info("💡 General knowledge query - direct LLM response (no RAG)")
+                
+                # Skip RAG pipeline, go directly to reporting
+                state["plan"] = {"mode": "direct_response", "steps": ["direct_answer"]}
+                state["status"] = "executing"
+                state["next_agent"] = "reporting"  # Skip to final reporting
+                
+                add_audit_event(state, "direct_response_mode", {
+                    "mode": "general_knowledge",
+                    "needs_rag": False
+                })
             
             add_audit_event(state, "plan_created", {
                 "steps": len(plan["steps"]),

@@ -28,6 +28,7 @@ class ReportingAgent:
     def generate_report(self, state: AgentState) -> AgentState:
         """
         Generate final report and answer.
+        Handles both research-based (RAG) and direct LLM responses.
         
         Args:
             state: Current agent state
@@ -39,15 +40,35 @@ class ReportingAgent:
         
         try:
             query = state["user_query"]
-            entities = state.get("entities_resolved", {})
-            metrics = state.get("computed_metrics", {})
-            citations = state.get("citations", [])
+            needs_rag = state.get("needs_rag", True)
             
-            # Build answer
-            answer = self._build_answer(query, entities, metrics)
-            
-            # Build full report
-            report = self._build_report(query, entities, metrics, citations)
+            if not needs_rag:
+                # Direct LLM response for general knowledge queries
+                logger.info("Generating direct response (no RAG)")
+                answer = self._generate_direct_answer(query, state)
+                
+                state["final_answer"] = answer
+                state["response_mode"] = "direct"
+                state["status"] = "completed"
+                
+                add_audit_event(state, "report_generated", {
+                    "mode": "direct_llm",
+                    "needs_rag": False,
+                    "answer_length": len(answer)
+                })
+                
+            else:
+                # Research-based response with RAG
+                logger.info("Generating research report (with RAG)")
+                entities = state.get("entities_resolved", {})
+                metrics = state.get("computed_metrics", {})
+                citations = state.get("citations", [])
+                
+                # Build answer
+                answer = self._build_answer(query, entities, metrics)
+                
+                # Build full report
+                report = self._build_report(query, entities, metrics, citations)
             
             # Calculate overall confidence
             confidence = self._calculate_confidence(state)
@@ -202,6 +223,41 @@ class ReportingAgent:
         )
         
         return "".join(report_parts)
+    
+    def _generate_direct_answer(self, query: str, state: AgentState) -> str:
+        """
+        Generate direct LLM answer for general knowledge queries.
+        No RAG, no citations, clean explanation.
+        
+        Args:
+            query: User question
+            state: Current state (for context if needed)
+            
+        Returns:
+            Direct answer string
+        """
+        from marie_agent.adapters.llm_factory import get_llm_adapter
+        
+        try:
+            llm = get_llm_adapter()
+            
+            # Get conversation context if available
+            conversation_history = state.get("conversation_context", [])
+            
+            # Generate clean, direct answer
+            answer = f"""## {query}
+
+{llm.generate_text(f"Answer this question clearly and concisely: {query}")}
+
+---
+*This is a general knowledge response. For research-specific queries about institutions, authors, or papers, please ask about specific entities.*
+"""
+            
+            return answer
+            
+        except Exception as e:
+            logger.error(f"Error generating direct answer: {e}")
+            return f"## Response\n\nI understand your question about: {query}\n\nHowever, I encountered an issue generating a response. Could you rephrase your question or ask something more specific?"
     
     def _calculate_confidence(self, state: AgentState) -> float:
         """Calculate overall confidence score."""
