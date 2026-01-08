@@ -202,41 +202,72 @@ Your output:"""
         lang_detector = get_language_detector()
         detected_lang = lang_detector.detect(query)
         
-        # Set language instruction
+        # Set language instruction - natural conversation style
         if detected_lang == "es":
-            lang_instruction = "IMPORTANT: Respond ONLY in Spanish. Do not use English."
-            system_msg = "Eres un asistente experto en español."
+            system_msg = "Eres MARIE, un asistente de investigación amigable y experto."
+            style_guide = """ESTILO DE RESPUESTA:
+- Responde SIEMPRE en español natural y conversacional
+- NO uses frases genéricas como "Lo siento, no puedo proporcionar..."
+- Si no tienes información específica, sé honesto pero mantén la conversación
+- Usa un tono cercano, como si hablaras con un colega investigador
+- Para saludos y preguntas personales, responde naturalmente
+- NO uses templates rígidos"""
         elif detected_lang == "pt":
-            lang_instruction = "IMPORTANT: Respond ONLY in Portuguese."
-            system_msg = "Você é um assistente especializado."
+            system_msg = "Você é MARIE, um assistente de pesquisa amigável e especializado."
+            style_guide = "Responda em português de forma natural e conversacional."
         elif detected_lang == "fr":
-            lang_instruction = "IMPORTANT: Respond ONLY in French."
-            system_msg = "Vous êtes un assistant expert."
+            system_msg = "Vous êtes MARIE, un assistant de recherche amical et expert."
+            style_guide = "Répondez en français de manière naturelle et conversationnelle."
         else:
-            lang_instruction = "Respond in English."
-            system_msg = "You are an expert assistant."
+            system_msg = "You are MARIE, a friendly and expert research assistant."
+            style_guide = "Respond naturally and conversationally in English."
         
         logger.debug(f"Detected language: {detected_lang}")
         
-        prompt = f"""{system_msg}
+        # Get context info
+        has_sources = context.get("has_sources", False)
+        documents = context.get("documents", [])
+        
+        # Build adaptive prompt
+        if not has_sources or len(documents) == 0:
+            # No sources - conversational mode
+            prompt = f"""{system_msg}
 
-You are the {agent_name} agent. Think step by step.
+{style_guide}
 
-Task: {task_description}
-User Query: "{query}"
-{lang_instruction}
+PREGUNTA DEL USUARIO: "{query}"
 
-Context:
+CONTEXTO: Esta es una pregunta general o conversacional.
+
+INSTRUCCIONES:
+1. Responde de forma natural y amigable
+2. Si te preguntan quién eres, explica que eres MARIE, un asistente de investigación
+3. Si es un saludo, saluda de vuelta y ofrece ayuda
+4. Si es una pregunta personal, responde apropiadamente
+5. NO uses frases como "Lo siento, no puedo proporcionar información"
+6. Mantén un tono profesional pero cercano
+
+Tu respuesta natural:"""
+        else:
+            # Has sources - research mode
+            prompt = f"""{system_msg}
+
+{style_guide}
+
+PREGUNTA DEL USUARIO: "{query}"
+
+INFORMACIÓN DISPONIBLE:
 {self._format_context(context)}
 
-Let's approach this step by step:
+INSTRUCCIONES:
+1. Analiza la información proporcionada
+2. Responde de forma clara y directa
+3. Usa los datos concretos disponibles
+4. Si hay papers, menciona los más relevantes
+5. Si hay métricas, incorpóralas naturalmente
+6. Responde en el mismo idioma de la pregunta
 
-Step 1: Understand what the user is asking
-Step 2: Analyze the available data
-Step 3: Reason about the best approach
-Step 4: Execute and generate output
-
-Your reasoning and output:"""
+Tu respuesta basada en los datos:"""
         
         return prompt
     
