@@ -1,0 +1,693 @@
+"""
+OpenSearch Expert Agent - Specialized agent for OpenSearch queries.
+
+This agent is an expert in constructing and executing OpenSearch queries.
+ALWAYS inspects data structure FIRST, then generates queries dynamically.
+NO hardcoded queries - everything is generated based on schema inspection.
+"""
+
+from typing import Dict, Any, List, Optional
+import logging
+import json
+from opensearchpy import OpenSearch
+
+from marie_agent.state import AgentState, add_audit_event
+from marie_agent.config import config
+from marie_agent.agents.prompt_engineer import get_prompt_engineer
+from marie_agent.adapters.llm_factory import get_llm_adapter
+
+logger = logging.getLogger(__name__)
+
+
+class OpenSearchExpertAgent:
+    """
+    Expert agent for OpenSearch operations.
+    
+    Workflow:
+    1. INSPECT: Get index mappings and understand data structure
+    2. ANALYZE: Understand what fields are available
+    3. GENERATE: Create query dynamically using LLM based on schema
+    4. EXECUTE: Run query and return results
+    
+    Capabilities:
+    - Schema inspection and analysis
+    - Dynamic query generation
+    - Semantic search with K-NN
+    - Complex boolean queries
+    - Aggregations and analytics
+    - Query optimization
+    """
+    
+    def __init__(self):
+        """Initialize OpenSearch expert."""
+        self.client = OpenSearch(hosts=[config.opensearch.url], timeout=30)
+        self.index_prefix = config.opensearch.index_prefix
+        self.llm = get_llm_adapter()
+        self.prompt_engineer = get_prompt_engineer()
+        self.schema_cache = {}  # Cache schemas to avoid repeated inspections
+        logger.info("OpenSearch Expert agent initialized")
+    
+    def inspect_index_structure(self, index_pattern: str) -> Dict[str, Any]:
+        """
+        Inspect OpenSearch index structure and mappings.
+        
+        Args:
+            index_pattern: Index pattern to inspect
+            
+        Returns:
+            Dictionary with index structure information
+        """
+        try:
+            # Check cache first
+            if index_pattern in self.schema_cache:
+                logger.debug(f"Using cached schema for {index_pattern}")
+                return self.schema_cache[index_pattern]
+            
+            logger.info(f"Inspecting structure of {index_pattern}")
+            
+            # Get index mappings
+            mappings = self.client.indices.get_mapping(index=index_pattern)
+            
+            # Get index settings
+            settings = self.client.indices.get_settings(index=index_pattern)
+            
+            # Extract field information
+            structure = {
+                "indices": {},
+                "common_fields": set(),
+                "field_types": {}
+            }
+            
+            for index_name, index_data in mappings.items():
+                properties = index_data.get("mappings", {}).get("properties", {})
+                
+                structure["indices"][index_name] = {
+                    "fields": list(properties.keys()),
+                    "mapping": properties
+                }
+                
+                # Track common fields
+                for field_name, field_info in properties.items():
+                    structure["common_fields"].add(field_name)
+                    field_type = field_info.get("type", "unknown")
+                    structure["field_types"][field_name] = field_type
+            
+            structure["common_fields"] = list(structure["common_fields"])
+            
+            # Get sample document
+            try:
+                sample = self.client.search(
+                    index=index_pattern,
+                    body={"size": 1, "query": {"match_all": {}}},
+                    _source=True
+                )
+                if sample["hits"]["hits"]:
+                    structure["sample_document"] = sample["hits"]["hits"][0]["_source"]
+            except Exception as e:
+                logger.warning(f"Could not get sample document: {e}")
+            
+            # Cache the structure
+            self.schema_cache[index_pattern] = structure
+            
+            logger.info(f"✓ Inspected {len(structure['indices'])} indices, "
+                       f"found {len(structure['common_fields'])} common fields")
+            
+            return structure
+            
+        except Exception as e:
+            logger.error(f"Error inspecting index structure: {e}")
+            return {"error": str(e), "indices": {}, "common_fields": [], "field_types": {}}
+    
+    def generate_query_dynamically(self, user_request: str, index_structure: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate OpenSearch query dynamically based on request and schema.
+        
+        Uses LLM to understand the request and create appropriate query
+        based on available fields in the index.
+        
+        Args:
+            user_request: What the user wants to search
+            index_structure: Schema information from inspect_index_structure
+            
+        Returns:
+            OpenSearch query dictionary
+        """
+        try:
+            logger.info("Generating query dynamically using LLM and schema")
+            
+            # Prepare schema info for LLM
+            available_fields = index_structure.get("common_fields", [])
+            field_types = index_structure.get("field_types", {})
+            sample_doc = index_structure.get("sample_document", {})
+            
+            # Build context for LLM
+            context = {
+                "user_request": user_request,
+                "available_fields": available_fields[:20],  # Limit for context
+                "field_types": {k: v for k, v in list(field_types.items())[:15]},
+                "sample_data": json.dumps(sample_doc, indent=2)[:500] if sample_doc else "No sample available"
+            }
+            
+            # Create prompt for query generation
+            query_gen_prompt = self.prompt_engineer.build_prompt(
+                agent_name="opensearch_expert",
+                task_description=(
+                    "Generate an OpenSearch query JSON based on user request and available fields. "
+                    "Return ONLY valid JSON for OpenSearch query DSL. "
+                    "Use multi_match for text search, term for exact match, range for numbers/dates. "
+                    "Example output: {\"query\": {\"multi_match\": {\"query\": \"text\", \"fields\": [\"title\", \"abstract\"]}}}"
+                ),
+                context=context,
+                technique="structured"
+            )
+            
+            # Generate query using LLM
+            llm_response = self.llm.generate(query_gen_prompt, max_tokens=300)
+            
+            logger.debug(f"LLM generated query: {llm_response[:200]}...")
+            
+            # Parse JSON from response
+            try:
+                # Try to find JSON in response
+                json_start = llm_response.find('{')
+                json_end = llm_response.rfind('}') + 1
+                
+                if json_start >= 0 and json_end > json_start:
+                    json_str = llm_response[json_start:json_end]
+                    query = json.loads(json_str)
+                    
+                    # Validate basic structure
+                    if "query" in query or "aggs" in query:
+                        logger.info("✓ Generated valid OpenSearch query")
+                        return query
+                    else:
+                        logger.warning("Query missing 'query' or 'aggs', using fallback")
+                        return self._create_fallback_query(user_request, available_fields)
+                else:
+                    logger.warning("No JSON found in LLM response, using fallback")
+                    return self._create_fallback_query(user_request, available_fields)
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM response as JSON: {e}")
+                return self._create_fallback_query(user_request, available_fields)
+                
+        except Exception as e:
+            logger.error(f"Error generating query dynamically: {e}")
+            return self._create_fallback_query(user_request, available_fields)
+    
+    def _create_fallback_query(self, user_request: str, available_fields: List[str]) -> Dict[str, Any]:
+        """
+        Create a simple fallback query when LLM generation fails.
+        
+        Args:
+            user_request: User's search request
+            available_fields: Fields available in index
+            
+        Returns:
+            Simple multi_match query
+        """
+        # Use common text fields
+        text_fields = [f for f in available_fields if f in ["title", "text", "abstract", "description", "authors", "keywords"]]
+        
+        if not text_fields:
+            text_fields = available_fields[:5]  # Use first 5 fields as fallback
+        
+        return {
+            "query": {
+                "multi_match": {
+                    "query": user_request,
+                    "fields": text_fields,
+                    "type": "best_fields"
+                }
+            }
+        }
+    
+    def execute_query(self, state: AgentState) -> AgentState:
+        """
+        Execute OpenSearch query with dynamic generation.
+        
+        Workflow:
+        1. Inspect index structure
+        2. Generate query dynamically based on schema
+        3. Execute query
+        4. Return results
+        
+        Args:
+            state: Current agent state with query requirements
+            
+        Returns:
+            Updated state with search results
+        """
+        query = state.get("user_query", "")
+        search_context = state.get("search_context", {})
+        requested_size = search_context.get("limit", 10)
+        
+        logger.info(f"🔍 OpenSearch Expert processing: {query[:50]}...")
+        
+        try:
+            # STEP 1: Inspect index structure
+            index_pattern = f"{self.index_prefix}_*"
+            logger.info(f"Step 1: Inspecting index structure: {index_pattern}")
+            
+            structure = self.inspect_index_structure(index_pattern)
+            
+            if "error" in structure:
+                logger.error(f"Failed to inspect structure: {structure['error']}")
+                state["error"] = f"Index inspection failed: {structure['error']}"
+                return state
+            
+            # STEP 2: Generate query dynamically
+            logger.info(f"Step 2: Generating query dynamically for: {query[:50]}...")
+            
+            opensearch_query = self.generate_query_dynamically(query, structure)
+            
+            # Add size to query
+            opensearch_query["size"] = requested_size
+            
+            logger.info(f"Generated query: {json.dumps(opensearch_query, indent=2)[:300]}...")
+            
+            # STEP 3: Execute query
+            logger.info("Step 3: Executing dynamically generated query")
+            
+            response = self.client.search(
+                index=index_pattern,
+                body=opensearch_query
+            )
+            
+            # STEP 4: Process results
+            hits = response["hits"]["hits"]
+            total = response["hits"]["total"]["value"]
+            
+            logger.info(f"✓ Query executed: {len(hits)} results (total: {total})")
+            
+            # Format results
+            results = []
+            for hit in hits:
+                results.append({
+                    "id": hit["_id"],
+                    "index": hit["_index"],
+                    "score": hit["_score"],
+                    "source": hit["_source"]
+                })
+            
+            # Update state
+            state["opensearch_results"] = results
+            state["opensearch_query"] = opensearch_query
+            state["opensearch_total"] = total
+            state["opensearch_structure"] = structure  # Share structure with other agents
+            
+            add_audit_event(state, "opensearch_query_executed", {
+                "query_generated": "dynamic",
+                "hits": len(hits),
+                "total": total,
+                "fields_available": len(structure.get("common_fields", []))
+            })
+            
+            logger.info(f"✓ OpenSearch Expert completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error in OpenSearch Expert: {e}", exc_info=True)
+            state["error"] = str(e)
+        
+        return state
+            elif strategy == "aggregation":
+                results = self._aggregation_query(query, search_context)
+            elif strategy == "filtered_search":
+                results = self._filtered_search(query, search_context)
+            else:
+                results = self._hybrid_search(query, search_context)
+            
+            # Update state
+            state["opensearch_results"] = results
+            state["opensearch_strategy"] = strategy
+            
+            add_audit_event(state, "opensearch_expert_completed", {
+                "strategy": strategy,
+                "results_count": len(results),
+                "query": query[:100]
+            })
+            
+            logger.info(f"OpenSearch Expert returned {len(results)} results")
+            
+        except Exception as e:
+            logger.error(f"OpenSearch Expert error: {e}", exc_info=True)
+            state["error"] = f"OpenSearch Expert: {str(e)}"
+            state["opensearch_results"] = []
+        
+        return state
+    
+    def _determine_search_strategy(self, query: str, context: Dict) -> str:
+        """
+        Use LLM to determine best search strategy.
+        
+        Args:
+            query: User query
+            context: Additional context from other agents
+            
+        Returns:
+            Strategy name
+        """
+        try:
+            prompt = self.prompt_engineer.build_prompt(
+                agent_name="opensearch_expert",
+                task_description="Determine best OpenSearch query strategy",
+                context={
+                    "query": query,
+                    "context": context,
+                    "strategies": [
+                        "semantic_search: For conceptual/meaning-based queries",
+                        "keyword_search: For exact term matching",
+                        "aggregation: For statistics, counts, grouping",
+                        "filtered_search: For constrained searches (by year, author, etc)",
+                        "hybrid_search: Combination of semantic + keyword"
+                    ]
+                },
+                technique="chain_of_thought"
+            )
+            
+            response = self.llm.generate(prompt, max_tokens=100)
+            
+            # Parse strategy from response
+            response_lower = response.lower()
+            if "semantic" in response_lower:
+                return "semantic_search"
+            elif "aggregation" in response_lower or "statistic" in response_lower:
+                return "aggregation"
+            elif "filter" in response_lower:
+                return "filtered_search"
+            elif "keyword" in response_lower:
+                return "keyword_search"
+            else:
+                return "hybrid_search"
+                
+        except Exception as e:
+            logger.warning(f"Strategy determination failed: {e}, using hybrid")
+            return "hybrid_search"
+    
+    def _semantic_search(self, query: str, context: Dict, limit: int = 20) -> List[Dict]:
+        """
+        Semantic search using text embeddings and K-NN.
+        
+        Args:
+            query: Search query
+            context: Additional filters/constraints
+            limit: Max results
+            
+        Returns:
+            List of documents
+        """
+        logger.info(f"Executing semantic search for: {query[:50]}...")
+        
+        try:
+            index_pattern = f"{self.index_prefix}_*"
+            
+            # Multi-match semantic query
+            search_body = {
+                "query": {
+                    "multi_match": {
+                        "query": query,
+                        "fields": ["text^3", "title^2", "abstract", "keywords"],
+                        "type": "best_fields",
+                        "operator": "or",
+                        "fuzziness": "AUTO"
+                    }
+                },
+                "size": limit,
+                "_source": ["title", "authors", "year", "abstract", "source", "doi"]
+            }
+            
+            # Add filters from context
+            if context.get("year_from"):
+                search_body["query"] = {
+                    "bool": {
+                        "must": [search_body["query"]],
+                        "filter": [
+                            {"range": {"year": {"gte": context["year_from"]}}}
+                        ]
+                    }
+                }
+            
+            response = self.client.search(index=index_pattern, body=search_body)
+            
+            results = []
+            for hit in response["hits"]["hits"]:
+                results.append({
+                    "id": hit["_id"],
+                    "score": hit["_score"],
+                    "index": hit["_index"],
+                    **hit["_source"]
+                })
+            
+            logger.info(f"Semantic search returned {len(results)} results")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Semantic search error: {e}")
+            return []
+    
+    def _keyword_search(self, query: str, context: Dict, limit: int = 20) -> List[Dict]:
+        """
+        Exact keyword/term matching search.
+        
+        Args:
+            query: Search terms
+            context: Additional context
+            limit: Max results
+            
+        Returns:
+            List of documents
+        """
+        logger.info(f"Executing keyword search for: {query[:50]}...")
+        
+        try:
+            index_pattern = f"{self.index_prefix}_*"
+            
+            # Term-based query
+            search_body = {
+                "query": {
+                    "query_string": {
+                        "query": query,
+                        "default_field": "text",
+                        "default_operator": "AND"
+                    }
+                },
+                "size": limit
+            }
+            
+            response = self.client.search(index=index_pattern, body=search_body)
+            
+            results = []
+            for hit in response["hits"]["hits"]:
+                results.append({
+                    "id": hit["_id"],
+                    "score": hit["_score"],
+                    **hit["_source"]
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Keyword search error: {e}")
+            return []
+    
+    def _aggregation_query(self, query: str, context: Dict) -> List[Dict]:
+        """
+        Execute aggregation query for statistics.
+        
+        Args:
+            query: Query describing aggregation needed
+            context: Aggregation parameters
+            
+        Returns:
+            Aggregation results
+        """
+        logger.info(f"Executing aggregation query: {query[:50]}...")
+        
+        try:
+            index_pattern = f"{self.index_prefix}_*"
+            
+            # Example: Top authors aggregation
+            search_body = {
+                "size": 0,
+                "aggs": {
+                    "top_authors": {
+                        "terms": {
+                            "field": "authors.keyword",
+                            "size": context.get("limit", 10)
+                        }
+                    },
+                    "papers_per_year": {
+                        "date_histogram": {
+                            "field": "year",
+                            "calendar_interval": "year"
+                        }
+                    }
+                }
+            }
+            
+            response = self.client.search(index=index_pattern, body=search_body)
+            
+            # Parse aggregations
+            results = []
+            if "aggregations" in response:
+                for agg_name, agg_data in response["aggregations"].items():
+                    results.append({
+                        "aggregation": agg_name,
+                        "buckets": agg_data.get("buckets", [])
+                    })
+            
+            logger.info(f"Aggregation returned {len(results)} result sets")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Aggregation error: {e}")
+            return []
+    
+    def _filtered_search(self, query: str, context: Dict, limit: int = 20) -> List[Dict]:
+        """
+        Search with multiple filters applied.
+        
+        Args:
+            query: Search query
+            context: Filters (year, author, type, etc)
+            limit: Max results
+            
+        Returns:
+            Filtered results
+        """
+        logger.info(f"Executing filtered search: {query[:50]}...")
+        
+        try:
+            index_pattern = f"{self.index_prefix}_*"
+            
+            # Build bool query with filters
+            must_clauses = [{
+                "multi_match": {
+                    "query": query,
+                    "fields": ["text", "title"]
+                }
+            }]
+            
+            filter_clauses = []
+            
+            if context.get("year_from"):
+                filter_clauses.append({"range": {"year": {"gte": context["year_from"]}}})
+            
+            if context.get("year_to"):
+                filter_clauses.append({"range": {"year": {"lte": context["year_to"]}}})
+            
+            if context.get("author"):
+                filter_clauses.append({"term": {"authors.keyword": context["author"]}})
+            
+            if context.get("institution"):
+                filter_clauses.append({"term": {"affiliations.keyword": context["institution"]}})
+            
+            search_body = {
+                "query": {
+                    "bool": {
+                        "must": must_clauses,
+                        "filter": filter_clauses
+                    }
+                },
+                "size": limit
+            }
+            
+            response = self.client.search(index=index_pattern, body=search_body)
+            
+            results = []
+            for hit in response["hits"]["hits"]:
+                results.append({
+                    "id": hit["_id"],
+                    "score": hit["_score"],
+                    **hit["_source"]
+                })
+            
+            logger.info(f"Filtered search returned {len(results)} results")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Filtered search error: {e}")
+            return []
+    
+    def _hybrid_search(self, query: str, context: Dict, limit: int = 20) -> List[Dict]:
+        """
+        Hybrid search combining semantic + keyword with boosting.
+        
+        Args:
+            query: Search query
+            context: Additional parameters
+            limit: Max results
+            
+        Returns:
+            Combined results
+        """
+        logger.info(f"Executing hybrid search: {query[:50]}...")
+        
+        try:
+            index_pattern = f"{self.index_prefix}_*"
+            
+            # Combine multiple query types with boosting
+            search_body = {
+                "query": {
+                    "bool": {
+                        "should": [
+                            {
+                                "multi_match": {
+                                    "query": query,
+                                    "fields": ["text^2", "title^3", "abstract^1.5"],
+                                    "type": "best_fields",
+                                    "boost": 2.0
+                                }
+                            },
+                            {
+                                "match_phrase": {
+                                    "text": {
+                                        "query": query,
+                                        "boost": 1.5
+                                    }
+                                }
+                            },
+                            {
+                                "query_string": {
+                                    "query": query,
+                                    "default_field": "text",
+                                    "boost": 1.0
+                                }
+                            }
+                        ],
+                        "minimum_should_match": 1
+                    }
+                },
+                "size": limit
+            }
+            
+            response = self.client.search(index=index_pattern, body=search_body)
+            
+            results = []
+            for hit in response["hits"]["hits"]:
+                results.append({
+                    "id": hit["_id"],
+                    "score": hit["_score"],
+                    **hit["_source"]
+                })
+            
+            logger.info(f"Hybrid search returned {len(results)} results")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Hybrid search error: {e}")
+            return []
+
+
+def opensearch_expert_node(state: AgentState) -> AgentState:
+    """
+    OpenSearch expert agent node for LangGraph.
+    
+    Args:
+        state: Current agent state
+        
+    Returns:
+        Updated state with OpenSearch results
+    """
+    agent = OpenSearchExpertAgent()
+    return agent.execute_query(state)

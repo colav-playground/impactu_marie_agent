@@ -13,6 +13,7 @@ from marie_agent.agents.retrieval import retrieval_agent_node
 from marie_agent.agents.metrics import metrics_agent_node
 from marie_agent.agents.citations import citations_agent_node
 from marie_agent.agents.reporting import reporting_agent_node
+from marie_agent.agents.opensearch_expert import opensearch_expert_node
 from marie_agent.memory import get_memory_manager
 from marie_agent.human_interaction import get_human_manager
 
@@ -97,6 +98,7 @@ def create_marie_graph() -> StateGraph:
     # Add specialized agent nodes
     workflow.add_node("entity_resolution", entity_resolution_agent_node)
     workflow.add_node("retrieval", retrieval_agent_node)
+    workflow.add_node("opensearch_expert", opensearch_expert_node)  # OpenSearch expert
     workflow.add_node("metrics", metrics_agent_node)
     workflow.add_node("citations", citations_agent_node)
     workflow.add_node("reporting", reporting_agent_node)
@@ -119,6 +121,7 @@ def create_marie_graph() -> StateGraph:
         {
             "entity_resolution": "entity_resolution",
             "retrieval": "retrieval",
+            "opensearch_expert": "opensearch_expert",
             "validation": "validation",
             "metrics": "metrics",
             "citations": "citations",
@@ -129,7 +132,7 @@ def create_marie_graph() -> StateGraph:
     )
     
     # Each agent routes back to orchestrator for next decision
-    for agent_node in ["entity_resolution", "retrieval", "validation", "metrics", "citations", "reporting", "human_interaction"]:
+    for agent_node in ["entity_resolution", "retrieval", "opensearch_expert", "validation", "metrics", "citations", "reporting", "human_interaction"]:
         workflow.add_edge(agent_node, "orchestrator")
     
     # Compile graph
