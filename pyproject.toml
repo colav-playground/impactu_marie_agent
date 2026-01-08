@@ -48,7 +48,7 @@ dev = [
 ]
 
 [project.scripts]
-marie = "marie_agent.cli:main"
+marie_chat = "marie_agent.cli:main"
 marie_index = "rag_indexer.cli:main"
 
 [project.urls]

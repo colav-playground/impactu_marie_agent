@@ -631,7 +631,7 @@ NOW GENERATE (use exact user request text, select 2-4 fields from the list above
         return state
 
 
-def opensearch_expert_agent_node(state: AgentState) -> AgentState:
+def opensearch_expert_node(state: AgentState) -> AgentState:
     """
     OpenSearch Expert agent node function for LangGraph.
     
