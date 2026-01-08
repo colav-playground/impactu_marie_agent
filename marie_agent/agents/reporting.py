@@ -99,24 +99,7 @@ class ReportingAgent:
         # Get prompt engineer service
         prompt_engineer = get_prompt_engineer()
         
-        # Build optimized prompt using Chain-of-Thought for synthesis
-        task_description = "Synthesize information from sources and generate a comprehensive answer"
-        optimized_prompt = prompt_engineer.build_prompt(
-            agent_name="reporting",
-            task_description=task_description,
-            context=context,
-            technique="chain-of-thought"  # Use CoT for reasoning
-        )
-        
-        logger.info("✨ Using Chain-of-Thought prompt from Prompt Engineer")
-        
-        # Generate answer using optimized prompt
-        llm = create_llm_adapter()
-        response = llm.generate(optimized_prompt, max_tokens=512)
-        
-        return response
-        
-        # Build context from documents and metrics
+        # Build context from documents and metrics FIRST
         context_parts = []
         
         # Add entity context
@@ -129,24 +112,49 @@ class ReportingAgent:
         context_parts.append(f"\nDocumentos encontrados: {len(documents)}")
         
         # Add top papers with details
-        context_parts.append("\nPapers más relevantes:")
-        for i, doc in enumerate(documents[:10], 1):
-            title = doc.get("title", "Unknown")
-            year = doc.get("year", "")
-            citations = doc.get("citations", 0)
-            authors = doc.get("authors", [])
-            
-            author_str = ""
-            if authors:
-                author_names = [a.get("full_name", "") for a in authors[:3]]
-                author_str = f" - Autores: {', '.join(filter(None, author_names))}"
-            
-            context_parts.append(f"{i}. {title} ({year}) - {citations} citas{author_str}")
+        if documents:
+            context_parts.append("\nPapers más relevantes:")
+            for i, doc in enumerate(documents[:10], 1):
+                title = doc.get("title", "Unknown")
+                year = doc.get("year", "")
+                citations = doc.get("citations", 0)
+                authors = doc.get("authors", [])
+                
+                author_str = ""
+                if authors:
+                    author_names = [a.get("full_name", "") for a in authors[:3]]
+                    author_str = f" - Autores: {', '.join(filter(None, author_names))}"
+                
+                context_parts.append(f"{i}. {title} ({year}) - {citations} citas{author_str}")
         
         # Add metrics
-        total_citations = metrics.get("citation_stats", {}).get("total", 0)
-        avg_citations = metrics.get("citation_stats", {}).get("mean", 0)
-        context_parts.append(f"\nCitas totales: {total_citations}, Promedio: {avg_citations:.1f}")
+        if metrics:
+            citation_stats = metrics.get("citation_stats", {})
+            total_citations = citation_stats.get("total", 0)
+            avg_citations = citation_stats.get("mean", 0)
+            if total_citations > 0:
+                context_parts.append(f"\nCitas totales: {total_citations}, Promedio: {avg_citations:.1f}")
+        
+        # Build enriched context
+        data_context = "\n".join(context_parts)
+        context["data_summary"] = data_context
+        
+        # Build optimized prompt using Chain-of-Thought for synthesis
+        task_description = f"Synthesize information from {len(documents)} documents and generate a comprehensive answer based on REAL DATA"
+        optimized_prompt = prompt_engineer.build_prompt(
+            agent_name="reporting",
+            task_description=task_description,
+            context=context,
+            technique="chain-of-thought"  # Use CoT for reasoning
+        )
+        
+        logger.info("✨ Using Chain-of-Thought prompt with data context")
+        
+        # Generate answer using optimized prompt with data
+        llm = create_llm_adapter()
+        response = llm.generate(optimized_prompt, max_tokens=512)
+        
+        return response
         
         context = "\n".join(context_parts)
         
