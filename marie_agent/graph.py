@@ -25,6 +25,22 @@ from marie_agent.memory import get_memory_manager
 from marie_agent.human_interaction import get_human_manager
 from marie_agent.core.routing import should_continue, route_after_error
 from marie_agent.core.exceptions import AgentExecutionError
+from marie_agent.core.observability import (
+    create_trace_context,
+    get_trace_context,
+    start_span,
+    end_span,
+    SpanKind,
+    SpanStatus,
+    set_span_status,
+    set_span_attribute,
+    get_trace_metrics,
+    export_trace
+)
+from marie_agent.core.metrics import (
+    record_agent_execution,
+    get_metrics
+)
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +281,7 @@ def run_marie_query(
     enable_checkpointing: bool = False
 ) -> Dict[str, Any]:
     """
-    Execute a query through the MARIE multi-agent system.
+    Execute a query through the MARIE multi-agent system with full observability.
     
     Args:
         user_query: User's question
@@ -275,67 +291,125 @@ def run_marie_query(
         enable_checkpointing: Enable fault-tolerant checkpointing
         
     Returns:
-        Final state with answer and evidence
+        Final state with answer, evidence, and observability data
     """
-    logger.info(f"Starting MARIE query: {user_query}")
+    # Create trace context for distributed tracing
+    trace_ctx = create_trace_context(request_id, user_query)
     
-    # Initialize memory manager
-    memory = get_memory_manager()
+    # Start root span
+    root_span = start_span("marie_query", SpanKind.AGENT, {
+        "user_query": user_query[:100],  # Truncate
+        "session_id": session_id,
+        "user_id": user_id
+    })
     
-    # Get or create session
-    if session_id:
-        session = memory.get_session(session_id)
-        if not session:
-            session = memory.create_session(session_id, user_id)
-    else:
-        session = memory.create_session(request_id, user_id)
-        session_id = request_id
+    try:
+        logger.info(f"Starting MARIE query: {user_query} (trace_id: {trace_ctx.trace_id})")
+        
+        # Initialize memory manager
+        span = start_span("init_memory", SpanKind.DATABASE)
+        memory = get_memory_manager()
+        end_span()
+        
+        # Get or create session
+        span = start_span("get_session", SpanKind.DATABASE)
+        if session_id:
+            session = memory.get_session(session_id)
+            if not session:
+                session = memory.create_session(session_id, user_id)
+        else:
+            session = memory.create_session(request_id, user_id)
+            session_id = request_id
+        end_span()
+        
+        # Get conversation context
+        span = start_span("get_conversation_context", SpanKind.DATABASE)
+        conversation_context = memory.get_conversation_context(session_id, turns=3)
+        if conversation_context:
+            set_span_attribute("context_turns", len(conversation_context))
+        end_span()
+        
+        # Create initial state
+        initial_state = create_initial_state(user_query, request_id)
+        initial_state["trace_id"] = trace_ctx.trace_id  # Add trace_id to state
+        
+        # Add conversation context to state
+        if conversation_context:
+            initial_state["parsed_query"] = {
+                "conversation_history": conversation_context
+            }
+            logger.info(f"Loaded {len(conversation_context)} previous turns")
+        
+        # Create and run graph with checkpointing option
+        span = start_span("create_graph", SpanKind.INTERNAL)
+        app = create_marie_graph(enable_checkpointing=enable_checkpointing)
+        end_span()
+        
+        # Execute workflow (with config if checkpointing enabled)
+        span = start_span("execute_workflow", SpanKind.AGENT)
+        if enable_checkpointing:
+            config = {"configurable": {"thread_id": session_id}}
+            final_state = app.invoke(initial_state, config=config)
+        else:
+            final_state = app.invoke(initial_state)
+        end_span()
+        
+        # Record turn in memory
+        span = start_span("record_turn", SpanKind.DATABASE)
+        memory.record_turn(
+            session_id=session_id,
+            turn_id=request_id,
+            user_query=user_query,
+            agent_response=final_state.get("final_answer", ""),
+            confidence=final_state.get("confidence_score", 0.0),
+            evidence_count=len(final_state.get("evidence_map", {})),
+            metadata={
+                "status": final_state["status"],
+                "agents_used": len([t for t in final_state.get("tasks", []) if t["status"] == "completed"])
+            }
+        )
+        end_span()
+        
+        # Persist session
+        span = start_span("save_session", SpanKind.DATABASE)
+        memory.save_session(session_id)
+        end_span()
+        
+        # Mark as successful
+        set_span_status(SpanStatus.OK)
+        
+        logger.info(f"MARIE query completed. Status: {final_state['status']}")
+        
+    except Exception as e:
+        # Record error in span
+        set_span_status(SpanStatus.ERROR, str(e))
+        logger.error(f"Error in MARIE query: {e}", exc_info=True)
+        raise
     
-    # Get conversation context
-    conversation_context = memory.get_conversation_context(session_id, turns=3)
+    finally:
+        # End root span
+        end_span()
+        
+        # Get trace metrics
+        trace_metrics = get_trace_metrics()
+        if trace_metrics:
+            logger.info(
+                f"Query metrics - Duration: {trace_metrics['total_duration_ms']:.2f}ms, "
+                f"Spans: {trace_metrics['total_spans']}, "
+                f"Errors: {trace_metrics['error_count']}"
+            )
     
-    # Create initial state
-    initial_state = create_initial_state(user_query, request_id)
-    
-    # Add conversation context to state
-    if conversation_context:
-        initial_state["parsed_query"] = {
-            "conversation_history": conversation_context
-        }
-        logger.info(f"Loaded {len(conversation_context)} previous turns")
-    
-    # Create and run graph with checkpointing option
-    app = create_marie_graph(enable_checkpointing=enable_checkpointing)
-    
-    # Execute workflow (with config if checkpointing enabled)
-    if enable_checkpointing:
-        config = {"configurable": {"thread_id": session_id}}
-        final_state = app.invoke(initial_state, config=config)
-    else:
-        final_state = app.invoke(initial_state)
-    
-    # Record turn in memory
-    memory.record_turn(
-        session_id=session_id,
-        turn_id=request_id,
-        user_query=user_query,
-        agent_response=final_state.get("final_answer", ""),
-        confidence=final_state.get("confidence_score", 0.0),
-        evidence_count=len(final_state.get("evidence_map", {})),
-        metadata={
-            "status": final_state["status"],
-            "agents_used": len([t for t in final_state.get("tasks", []) if t["status"] == "completed"])
-        }
-    )
-    
-    # Persist session
-    memory.save_session(session_id)
-    
-    logger.info(f"MARIE query completed. Status: {final_state['status']}")
-    
-    # Add session info to response
+    # Add session info and observability data to response
     final_state["session_id"] = session_id
     final_state["turn_count"] = len(session.turns) if session else 1
+    
+    # Add observability data
+    final_state["trace_id"] = trace_ctx.trace_id
+    final_state["trace_metrics"] = get_trace_metrics()
+    final_state["observability"] = {
+        "trace": export_trace(),
+        "metrics": get_metrics()
+    }
     
     return final_state
 
