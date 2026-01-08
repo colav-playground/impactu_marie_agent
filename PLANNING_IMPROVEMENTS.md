@@ -1,7 +1,29 @@
 # MARIE Planning System - Improvements Needed
 
 **Date:** 2026-01-08  
-**Based on:** LangChain Plan-and-Execute patterns, ReAct, ReWOO, LLMCompiler
+**Based on:** LangChain Plan-and-Execute patterns, ReAct, ReWOO, LLMCompiler  
+**Compatible with:** Microsoft Magentic-One Architecture (already implemented in MARIE)
+
+## ✅ Current Magentic Architecture (PRESERVED)
+
+MARIE already implements core Magentic-One components:
+
+### Existing Components:
+1. **OrchestratorAgent** - Central orchestrator (Magentic Lead Agent equivalent)
+2. **ContextWindow** - Conversation history management
+3. **ProgressTracker** - Progress ledger for execution tracking
+4. **QualityEvaluator** - Response quality assessment
+5. **DynamicPlanGenerator** - Adaptive plan generation with memory
+6. **ActionGuard** - Safety checks for agent actions
+7. **Episodic Memory** - Long-term memory (OpenSearch-backed)
+
+### Key Magentic Principles Already Implemented:
+- ✅ **Orchestrator-driven workflow** - OrchestratorAgent coordinates all agents
+- ✅ **Progress ledger** - ProgressTracker maintains execution state
+- ✅ **Dynamic replanning** - Can adjust plans based on results
+- ✅ **Context management** - ContextWindow prevents overflow
+- ✅ **Quality evaluation** - QualityEvaluator checks outputs
+- ✅ **Human-in-loop** - ActionGuard + human_manager integration
 
 ## 🎯 Current Issues
 
@@ -9,16 +31,19 @@
 - Orchestrator generates 1-2 step plans only
 - No decomposition of complex queries
 - Missing sub-task identification
+- **DynamicPlanGenerator exists but needs better prompts**
 
 ### Problem 2: No Task Dependencies
 - Cannot reference previous task outputs
 - No variable assignment (like ReWOO's #E1, #E2)
 - Sequential execution only
+- **ProgressTracker tracks progress but doesn't pass variables**
 
 ### Problem 3: Limited Reasoning
 - No explicit "thinking" steps
 - No intermediate result verification
-- No replanning capability
+- No replanning capability (exists but not triggered)
+- **QualityEvaluator exists but needs integration with replanning**
 
 ## 📚 Best Practices from Research
 
@@ -92,18 +117,20 @@ Observation: Result W
 - 🔍 Handles exceptions
 - ✅ Reduces hallucinations
 
-## 🛠️ Proposed Improvements for MARIE
+## 🛠️ Proposed Improvements for MARIE (Magentic-Compatible)
 
 ### Phase 1: Enhanced Plan Generation ⚡ HIGH PRIORITY
 
-**Current:**
+**IMPORTANT:** We keep Magentic's ProgressTracker and DynamicPlanGenerator, just enhance them.
+
+**Current (DynamicPlanGenerator output):**
 ```python
 plan = {
     "steps": ["Search for data", "Generate response"]
 }
 ```
 
-**Improved:**
+**Improved (Enhanced DynamicPlanGenerator):**
 ```python
 plan = {
     "query_analysis": {
@@ -164,51 +191,82 @@ plan = {
 }
 ```
 
-### Phase 2: ReAct-Style Reasoning
+### Phase 2: Variable Store System (Magentic-Compatible)
 
-**Add explicit reasoning steps:**
+**Integration with existing ProgressTracker:**
+
+The ProgressTracker already tracks execution state. We extend it with variable storage:
+
 ```python
-state = {
-    "reasoning_trace": [
-        {
-            "thought": "Need to find researchers first",
-            "action": "retrieval",
-            "observation": "Found 50 researchers"
-        },
-        {
-            "thought": "Must calculate metrics to rank them",
-            "action": "metrics",
-            "observation": "Computed h-index for 50"
-        }
-    ]
-}
-```
-
-### Phase 3: Variable Assignment System
-
-**Implement variable store:**
-```python
-class VariableStore:
-    def __init__(self):
-        self.vars = {}
+# In core/progress_ledger.py - EXTEND existing class
+class ProgressTracker:
+    def __init__(self, llm):
+        # ... existing code ...
+        self.variable_store = {}  # NEW: Add variable storage
     
-    def set(self, var_name: str, value: Any):
-        self.vars[var_name] = value
-        logger.info(f"Variable set: ${var_name}")
+    def record_completion(self, step_id: str, result: Any):
+        """Record step completion and store output variable."""
+        # ... existing code ...
+        
+        # NEW: Store result as variable if step defines output
+        if 'output_var' in step:
+            var_name = step['output_var']
+            self.variable_store[var_name] = result
+            logger.info(f"Variable stored: ${var_name}")
     
-    def get(self, var_name: str) -> Any:
-        return self.vars.get(var_name)
-    
-    def resolve(self, text: str) -> str:
+    def resolve_variables(self, text: str) -> str:
         """Replace $var references with actual values."""
-        for var_name, value in self.vars.items():
+        for var_name, value in self.variable_store.items():
             text = text.replace(f"${var_name}", str(value))
         return text
+    
+    def get_variable(self, var_name: str) -> Any:
+        """Get variable value."""
+        return self.variable_store.get(var_name)
 ```
 
-### Phase 4: Query Decomposition
+**NO new files needed - just extend existing ProgressTracker!**
 
-**Enhance orchestrator planning prompt:**
+### Phase 3: ReAct Reasoning Traces (Magentic-Compatible)
+
+**Integration with existing ContextWindow:**
+
+The ContextWindow already stores messages. We add structured reasoning:
+
+```python
+# In core/context_window.py - EXTEND existing class
+class ContextWindow:
+    def __init__(self, max_tokens: int = 8000):
+        # ... existing code ...
+        self.reasoning_trace = []  # NEW: Add reasoning trace
+    
+    def add_reasoning_step(
+        self,
+        thought: str,
+        action: str,
+        observation: str,
+        agent_name: str
+    ):
+        """Add a ReAct-style reasoning step."""
+        step = {
+            "thought": thought,
+            "action": action,
+            "observation": observation,
+            "agent": agent_name,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        self.reasoning_trace.append(step)
+        
+        # Also add to regular messages
+        self.add_message(
+            role="agent",
+            content=f"Thought: {thought}\nAction: {action}\nObservation: {observation}",
+            agent_name=agent_name,
+            metadata={"type": "reasoning_trace"}
+        )
+```
+
+**NO new files - just extend ContextWindow!**
 ```python
 DECOMPOSITION_PROMPT = """
 You are an expert query planner for a research intelligence system.
@@ -261,35 +319,61 @@ results = await run_parallel_dict({
 })
 ```
 
-## 🎯 Implementation Priority
+## 🎯 Implementation Priority (Magentic-Compatible)
 
 ### ✅ Phase 1: Enhanced Plan Generation (CRITICAL)
 **Effort:** 2-3 hours  
 **Impact:** High  
+**Magentic Integration:** Update DynamicPlanGenerator prompts  
 **Files:**
-- `marie_agent/orchestrator.py` - Update planning prompts
-- `marie_agent/core/plan_generator.py` - Add detailed plan structure
+- `marie_agent/core/plan_generator.py` - Update decomposition prompt
+- `marie_agent/orchestrator.py` - Better query parsing
 
-### 🔄 Phase 2: Variable Assignment System
+**Changes:**
+- Enhance existing planning prompts (no new components)
+- Add structured plan format with task types
+- Keep using existing DynamicPlanGenerator class
+
+### 🔄 Phase 2: Variable Store in ProgressTracker (HIGH)
 **Effort:** 1-2 hours  
 **Impact:** High  
+**Magentic Integration:** Extend existing ProgressTracker  
 **Files:**
-- `marie_agent/core/variable_store.py` - NEW
-- `marie_agent/state.py` - Add variable_store field
-- `marie_agent/agents/*.py` - Use variable store
+- `marie_agent/core/progress_ledger.py` - Add variable_store dict
+- `marie_agent/agents/*.py` - Store/retrieve variables
 
-### 📊 Phase 3: ReAct Reasoning Traces
+**Changes:**
+- Add variable_store dict to ProgressTracker.__init__
+- Add record_completion() to store output variables
+- Add resolve_variables() to replace $var references
+- NO new classes needed!
+
+### 📊 Phase 3: ReAct Traces in ContextWindow (MEDIUM)
 **Effort:** 1 hour  
 **Impact:** Medium  
+**Magentic Integration:** Extend existing ContextWindow  
 **Files:**
-- `marie_agent/state.py` - Add reasoning_trace
+- `marie_agent/core/context_window.py` - Add reasoning_trace list
 - `marie_agent/agents/*.py` - Log thoughts/observations
+
+**Changes:**
+- Add reasoning_trace list to ContextWindow
+- Add add_reasoning_step() method
+- Agents call this before/after actions
+- NO new classes needed!
 
 ### ⚡ Phase 4: Parallel Execution (Optional)
 **Effort:** 2-3 hours  
 **Impact:** Medium (performance)  
+**Magentic Integration:** Compatible with orchestrator  
 **Files:**
-- `marie_agent/graph.py` - Add parallel node execution
+- `marie_agent/graph.py` - Use async_ops for parallel edges
+- Use existing `async_ops.py`
+
+**Changes:**
+- Identify independent tasks in plan
+- Use run_parallel_dict() from existing async_ops
+- Keep orchestrator coordination intact
 - Use existing `async_ops.py`
 
 ## 📈 Expected Improvements
@@ -374,17 +458,50 @@ marie_chat
 5. **Plan-and-Solve Prompting (Wang et al.):**  
    https://arxiv.org/abs/2305.04091
 
-## ✅ Next Steps
+## ✅ Next Steps (Magentic-Compatible Implementation)
 
-1. Review this document
-2. Choose implementation phases (recommend 1-3)
-3. Update orchestrator planning logic
-4. Add variable store system
-5. Test with complex queries
-6. Monitor improvements
+### Priority 1: Enhance DynamicPlanGenerator (2-3 hours)
+1. Update `core/plan_generator.py` prompt for detailed decomposition
+2. Add task type classification (search, compute, rank, etc.)
+3. Add variable assignment ($E1, $E2) in plan output
+4. Keep all existing Magentic components intact
+
+### Priority 2: Extend ProgressTracker (1-2 hours)
+1. Add `variable_store` dict to ProgressTracker class
+2. Extend `record_completion()` to store output variables
+3. Add `resolve_variables()` method for $var replacement
+4. Update agents to use variables
+
+### Priority 3: Extend ContextWindow (1 hour)
+1. Add `reasoning_trace` list to ContextWindow
+2. Add `add_reasoning_step()` method
+3. Agents log thought/action/observation
+
+### Testing Complex Queries
+```bash
+marie_chat
+# Test: "Compare top 3 researchers in ML vs AI by citations"
+# Expected: 8-10 step plan with dependencies
+# Expected: Variable references like $ml_researchers, $ai_researchers
+```
 
 ---
 
-**Status:** Ready for implementation  
-**Estimated Total Time:** 5-8 hours for Phases 1-3  
-**Impact:** Transforms MARIE from simple Q&A to complex reasoning system
+## 🔑 Key Magentic Principles Preserved
+
+✅ **Orchestrator Coordination** - OrchestratorAgent remains central coordinator  
+✅ **Progress Tracking** - ProgressTracker extended, not replaced  
+✅ **Context Management** - ContextWindow extended, not replaced  
+✅ **Quality Evaluation** - QualityEvaluator integration maintained  
+✅ **Human-in-Loop** - ActionGuard and human_manager intact  
+✅ **Dynamic Replanning** - Orchestrator can still adjust plans  
+✅ **Memory Systems** - Episodic memory (OpenSearch) preserved
+
+**All improvements are EXTENSIONS of existing Magentic components, not replacements!**
+
+---
+
+**Status:** Ready for Magentic-compatible implementation  
+**Estimated Total Time:** 4-6 hours for Phases 1-3  
+**Impact:** Complex query handling without breaking Magentic architecture  
+**Risk:** LOW - Only extending existing components
