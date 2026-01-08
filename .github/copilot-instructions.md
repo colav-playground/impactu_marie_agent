@@ -1,164 +1,214 @@
-# GitHub Copilot Instructions - Impactu MARIE Agent
+# IMPACTU MARIE Agent - GitHub Copilot Instructions
 
-## Expert Profile
+## Project Overview
 
-You are an elite ML Engineer specialized in:
+MARIE (Multi-Agent Research Intelligence Engine) is a sophisticated multi-agent AI system for research intelligence and scientific literature analysis. Built with LangChain, LangGraph, and OpenSearch, it provides intelligent querying, entity resolution, metrics computation, and report generation for academic research.
 
-### Core Expertise
-- **RAG Systems:** Advanced Retrieval Augmented Generation architectures
-- **Multi-Agent Systems:** LangChain, LangGraph, LangServe orchestration
-- **Prompt Engineering:** Advanced techniques for optimal LLM responses
-- **Vector Search:** OpenSearch with K-NN GPU acceleration
-- **LLM Deployment:** Ollama, vLLM, HuggingFace models
-- **ETL Processes:** Data pipelines and transformations
-- **Databases:** MongoDB operations and optimization
-- **Python:** Expert-level Python development
-- **Containerization:** Docker and Docker Compose
-- **Package Management:** uv for package installation
+**Key Technologies:** Python 3.10+, LangChain, LangGraph, OpenSearch, MongoDB, Ollama, Docker
 
-### Technical Stack
+**Project Type:** AI/ML Multi-Agent System with RAG capabilities
 
-#### AI/ML Frameworks
-- **LangChain:** Building LLM applications with chains and tools
-- **LangGraph:** Stateful multi-agent workflows
-- **LangServe:** Deploying LangChain applications as REST APIs
-- **Ollama:** Local LLM deployment and management
-- **vLLM:** High-performance LLM inference
-- **HuggingFace:** Transformers, model hub, embeddings
+## Build & Development
 
-#### Vector & Search
-- **OpenSearch:** K-NN search with GPU acceleration
-- **Embeddings:** Text embeddings for semantic search
-- **Vector indexing:** Efficient similarity search
+### Environment Setup
+```bash
+# Install dependencies with uv (ALWAYS use uv, not pip)
+uv pip install -e .
 
-#### Data & Backend
-- **MongoDB:** NoSQL database operations, aggregations, indexing
-- **ETL:** Extract, Transform, Load pipelines
-- **Python:** asyncio, type hints, dataclasses, pydantic
+# Environment variables required
+# Create .env file with:
+OPENSEARCH_URL=http://localhost:9200
+MONGODB_URI=mongodb://localhost:27017
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2:1.5b
+```
 
-#### Infrastructure
-- **Docker:** Container creation and management
-- **Docker Compose:** Multi-container orchestration
-- **uv:** Fast Python package installer
+### Commands
+```bash
+# Run interactive chat
+marie_chat
 
-## Development Guidelines
+# Run indexer
+marie_index --help
 
-### 1. Language & Style
-- ✅ **ALL code and comments MUST be in English**
-- ✅ Use clear, descriptive variable and function names
-- ✅ Follow PEP 8 style guide
-- ✅ Use type hints consistently
+# Run tests (when available)
+pytest
+
+# Docker services
+docker compose up -d opensearch mongodb ollama
+```
+
+## Architecture
+
+### Core Components
 - ✅ Write docstrings for functions and classes
 
 ### 2. Version Control - ⚠️ CRITICAL RULES ⚠️
 - 🚫 **STRICTLY PROHIBITED: NEVER, EVER make automatic commits without explicit permission**
 - 🚫 **STRICTLY PROHIBITED: NEVER, EVER run `git commit` automatically**
 - 🚫 **STRICTLY PROHIBITED: NEVER, EVER run `git push` automatically**
+### Core Components
+- **Orchestrator:** Magentic-based planning and routing
+- **OpenSearch Expert:** Dynamic query generation with reflexion (NO hardcoded queries)
+- **Prompt Engineer:** Self-improving prompt generation with reflexion
+- **Entity Resolution:** Colombian research entities (institutions, authors, groups)
+- **Retrieval Agent:** Fetch documents from OpenSearch
+- **Metrics Agent:** Compute research metrics
+- **Citations Agent:** Format references
+- **Reporting Agent:** Generate final responses
+
+### Key Features
+1. **Reflexion Pattern:** Both OpenSearch Expert and Prompt Engineer use iterative self-improvement
+2. **No Hardcoded Queries:** All OpenSearch queries are dynamically generated based on schema inspection
+3. **Query Logging:** All queries logged to `impactu_marie_agent_query_logs` for analytics
+4. **Prompt Logging:** All prompts logged to `impactu_marie_agent_prompt_logs` for analytics
+5. **Memory Systems:** Learn from past successful attempts
+
+## Development Rules
+
+### 1. Code Style - ENGLISH ONLY
+- ✅ **ALL code, comments, and docstrings MUST be in English**
+- ✅ Use type hints: `typing, Optional, List, Dict, Any`
+- ✅ Write comprehensive docstrings
+- ✅ Follow PEP 8 style guide
+- ✅ Use structured logging with context
+
+### 2. Version Control - ⚠️ CRITICAL RULES ⚠️
+- 🚫 **STRICTLY PROHIBITED: NEVER, EVER make automatic commits**
+- 🚫 **STRICTLY PROHIBITED: NEVER run `git commit` automatically**
+- 🚫 **STRICTLY PROHIBITED: NEVER run `git push` automatically**
 - 🚫 **STRICTLY PROHIBITED: NEVER suggest making commits**
-- 🚫 **DO NOT use `git add` unless explicitly asked**
-- ✅ **ONLY make commits when user explicitly says "make a commit" or "commit this"**
+- ✅ **ONLY commit when user explicitly says "make a commit" or "commit this"**
 - ✅ **ONLY push when user explicitly says "push" or "push to github"**
 - ✅ **ALWAYS ask "Do you want me to commit these changes?" before committing**
-- ✅ Let the user handle ALL git operations unless they explicitly delegate to you
-- ✅ You can show `git status` or `git diff` to help the user decide
+- ✅ Let the user handle ALL git operations unless explicitly delegated
 
-### 3. Documentation & Testing
-- ❌ ⚠️ **STRICTLY PROHIBITED: DO NOT create documentation files unless EXPLICITLY requested**
-- ❌ ⚠️ **STRICTLY PROHIBITED: DO NOT create tests unless EXPLICITLY requested**
-- ❌ ⚠️ **DO NOT create markdown files, README sections, or any docs proactively**
-- ❌ ⚠️ **DO NOT create explanatory documents, guides, or references without request**
-- ❌ ⚠️ **DO NOT give long explanations or summaries unless asked**
-- ✅ Place any generated documentation in `docs/` folder ONLY when explicitly asked
-- ✅ Only create what is specifically asked for - nothing more
-- ✅ Keep responses concise and to the point
+### 3. Documentation & Testing - NO UNSOLICITED CREATION
+- ❌ **DO NOT create documentation files unless EXPLICITLY requested**
+- ❌ **DO NOT create tests unless EXPLICITLY requested**
+- ❌ **DO NOT create markdown files without explicit request**
+- ❌ **DO NOT give long explanations unless asked**
+- ✅ Place docs in `docs/` folder ONLY when explicitly asked
+- ✅ Only create what is specifically requested
+- ✅ Keep responses concise
 
 ### 4. Package Management
 - ✅ **ALWAYS use `uv` for package installation**
 - ✅ Example: `uv pip install package-name`
-- ✅ Use `uv` commands instead of pip
+- ✅ Never use pip directly
 
 ### 5. Problem Solving
-- ✅ **When something is unclear, search the internet first**
+- ✅ Search the internet when unclear
 - ✅ Research best practices before implementing
-- ✅ Validate assumptions with available resources
+- ✅ Validate assumptions with resources
 - ✅ Ask for clarification only after research
-
-### 6. Code Structure
-- Use type hints (typing, Optional, List, Dict, Any)
-- Write comprehensive docstrings
-- Implement proper error handling with try/except
-- Use structured logging with context
-- Follow async/await patterns for I/O operations
-- Create modular, reusable components
-
-### 7. Multi-Agent Architecture
-- Use LangGraph StateGraph for agent workflows
-- Define TypedDict for shared state
-- Implement agent functions with clear responsibilities
-- Use conditional edges for routing logic
-- Handle agent coordination and communication
-
-### 8. OpenSearch K-NN Configuration
-- Configure K-NN index with GPU acceleration
-- Use HNSW algorithm for similarity search
-- Set appropriate dimension for embedding vectors
-- Optimize ef_construction and m parameters
-- Implement hybrid search with filters
-
-### 9. Docker Best Practices
-- Use multi-stage builds for smaller images
-- Install uv in Docker images
-- Configure proper environment variables
-- Set up service dependencies correctly
-- Use volumes for data persistence
-- Configure GPU access when needed
-
-### 10. MongoDB Operations
-- Use Motor for async MongoDB operations
-- Implement repository pattern for data access
-- Use aggregation pipelines for complex queries
-- Handle bulk operations efficiently
-- Implement proper error handling
-
-## Key Principles
-
-1. **Clarity:** Write self-documenting code with clear names
-2. **Efficiency:** Use async/await for I/O operations
-3. **Robustness:** Handle errors gracefully with logging
-4. **Modularity:** Build reusable components
-5. **Type Safety:** Use type hints everywhere
-6. **English Only:** All code, comments, and names in English
-7. **Minimal Output:** Only create what is requested
-8. **Research First:** Search before asking
-
-## Common Commands
-
-**Docker:**
-- `docker compose up -d` (note: `docker compose` with space, not `docker-compose`)
-- `docker compose logs -f agent`
-- `docker compose down`
-
 
 ## Project Structure
 
-- `src/agents/` - Multi-agent implementations
-- `src/chains/` - LangChain chains
-- `src/embeddings/` - Embedding models
-- `src/repositories/` - Data access layer
-- `src/services/` - Business logic
-- `src/utils/` - Utilities
-- `docs/` - Documentation (only when requested)
-- `docker-compose.yml` - Container orchestration
-- `Dockerfile` - Container definition
-- `requirements.txt` - Python dependencies
+```
+impactu_marie_agent/
+├── marie_agent/              # Main agent package
+│   ├── agents/              # Agent implementations
+│   │   ├── opensearch_expert.py   # Dynamic query generation with reflexion
+│   │   ├── prompt_engineer.py     # Self-improving prompts with reflexion
+│   │   ├── entity_resolution.py   # Colombian entities
+│   │   ├── retrieval.py           # Document retrieval
+│   │   ├── metrics.py             # Research metrics
+│   │   ├── citations.py           # Reference formatting
+│   │   └── reporting.py           # Final answer generation
+│   ├── adapters/            # LLM adapters (Ollama, vLLM)
+│   ├── ports/               # Interface definitions
+│   ├── services/            # Business logic
+│   ├── cli.py               # CLI entry point (marie_chat)
+│   ├── config.py            # Configuration
+│   ├── graph.py             # LangGraph workflow
+│   ├── orchestrator.py      # Magentic orchestration
+│   └── state.py             # Shared state management
+├── rag_indexer/             # Indexing system
+│   ├── cli.py               # Indexer CLI (marie_index)
+│   ├── indexer.py           # Main indexing logic
+│   └── opensearch_manager.py # OpenSearch operations
+├── docs/                    # Documentation (only when requested)
+├── .github/
+│   └── copilot-instructions.md  # This file
+├── docker-compose.yml       # Services: OpenSearch, MongoDB, Ollama
+├── Dockerfile               # Container definition
+├── pyproject.toml           # Python project config
+└── README.md                # Project overview
+```
 
-## Remember
+## Key Files to Know
 
-- 🚫 **NO automatic commits**
-- 🚫 **NO unsolicited documentation** - This is critical!
-- 🚫 **NO unsolicited tests**
-- 🚫 **NO markdown files unless explicitly requested**
-- ✅ Always use English
-- ✅ Use uv for packages
-- ✅ Search when unclear
-- ✅ Docs go in docs/ ONLY when requested
+### Entry Points
+- **marie_chat:** `marie_agent/cli.py:main()` - Interactive chat interface
+- **marie_index:** `rag_indexer/cli.py:main()` - Indexing CLI
+
+### Core Agents
+- **OpenSearch Expert:** `marie_agent/agents/opensearch_expert.py`
+  - Dynamic query generation (NO hardcoded queries)
+  - Reflexion pattern (up to 3 iterations)
+  - Query logging to `impactu_marie_agent_query_logs`
+- **Prompt Engineer:** `marie_agent/agents/prompt_engineer.py`
+  - Self-improving prompts
+  - Reflexion pattern (up to 2 iterations)
+  - Prompt logging to `impactu_marie_agent_prompt_logs`
+
+### Configuration
+- **Config:** `marie_agent/config.py` - All settings
+- **Env Variables:** `.env` file (OpenSearch, MongoDB, Ollama URLs)
+
+## Critical Implementation Details
+
+### OpenSearch Indices (Follow Naming Standard)
+- `impactu_*` - Main data indices
+- `impactu_marie_agent_query_logs` - Query analytics
+- `impactu_marie_agent_prompt_logs` - Prompt analytics
+- `impactu_marie_agent_plan_memory` - Planning memory
+- `impactu_marie_agent_episodic_memory` - Episodic memory
+
+### Agent Features
+1. **Reflexion Pattern:** Both OpenSearch Expert and Prompt Engineer iterate to improve
+2. **Dynamic Queries:** Schema inspection → LLM generation → No hardcoded queries
+3. **Memory Systems:** Learn from successful attempts
+4. **Query Logging:** Full observability in OpenSearch
+5. **Natural Language:** Conversational responses, no canned phrases
+
+## Commands
+
+### Development
+```bash
+# Install (ALWAYS use uv)
+uv pip install -e .
+
+# Run chat
+marie_chat
+
+# Run indexer
+marie_index --help
+
+# Docker (note: docker compose with space)
+docker compose up -d
+docker compose logs -f agent
+docker compose down
+```
+
+### Testing (when tests exist)
+```bash
+pytest
+```
+
+## Remember - Critical Rules
+
+### 🚫 NEVER DO THESE:
+1. Make automatic commits or pushes
+2. Create documentation without explicit request
+3. Create tests without explicit request
+4. Use pip (always use uv)
+5. Create markdown files proactively
+
+### ✅ ALWAYS DO THESE:
+1. Write ALL code in English
+2. Use uv for package management
+3. Search internet before asking
+4. Keep responses concise
+5. Follow the reflexion pattern for agents
