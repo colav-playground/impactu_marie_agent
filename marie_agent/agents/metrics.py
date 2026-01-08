@@ -152,5 +152,5 @@ def metrics_agent_node(state: AgentState) -> AgentState:
     from marie_agent.core.routing import increment_step
     
     agent = MetricsAgent()
-    state = agent.compute_metrics(state)
+    state = agent.compute(state)
     return increment_step(state)

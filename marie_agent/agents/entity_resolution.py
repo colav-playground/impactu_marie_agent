@@ -296,5 +296,5 @@ def entity_resolution_agent_node(state: AgentState) -> AgentState:
     from marie_agent.core.routing import increment_step
     
     agent = EntityResolutionAgent()
-    state = agent.resolve_entities(state)
+    state = agent.resolve(state)
     return increment_step(state)

@@ -101,5 +101,5 @@ def citations_agent_node(state: AgentState) -> AgentState:
     from marie_agent.core.routing import increment_step
     
     agent = CitationsAgent()
-    state = agent.add_citations(state)
+    state = agent.build_citations(state)
     return increment_step(state)

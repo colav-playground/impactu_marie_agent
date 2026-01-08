@@ -191,59 +191,78 @@ class DynamicPlanGenerator:
     
     def _analyze_query_type(self, query: str) -> str:
         """
-        Classify query using few-shot prompting for fast, accurate intent detection.
+        Classify query using improved few-shot prompting for fast, accurate intent detection.
         
         Returns:
             Query type: greeting, conversational, conceptual, data_driven, or complex
         """
-        # Few-shot examples for classification
-        prompt = f"""Classify query:
+        # Improved few-shot examples
+        prompt = f"""Classify query intent:
 
 "hello" → greeting
-"what is AI?" → conceptual
-"how many papers?" → data_driven
 "thanks" → conversational
-"top 10 papers from MIT on AI with h-index" → complex
+"what is machine learning?" → conceptual
+"how many papers does UdeA have?" → data_driven
+"top 10 researchers in AI" → data_driven
+"compare citations of MIT vs Stanford" → complex
+"top 5 Colombian researchers by h-index" → data_driven
+"who are the researchers working on NLP?" → data_driven
+"what is the h-index of Dr. Smith?" → data_driven
+
+RULES:
+- greeting: hi, hello, hey
+- conversational: thanks, ok, yes, no
+- conceptual: what is X?, explain Y, how does Z work?
+- data_driven: who, how many, top N, list, search, find, researchers, papers, institutions
+- complex: compare, versus, analyze, multi-step
 
 "{query}" →"""
 
         try:
-            response = self.llm.generate(prompt, max_tokens=5).strip().lower()
+            response = self.llm.generate(prompt, max_tokens=10).strip().lower()
             
-            # Extract category word
+            # Extract first word
             response = response.split()[0] if response else ""
             
-            # Validate and extract
+            # Validate
             valid_types = ["greeting", "conversational", "conceptual", "data_driven", "complex"]
             
-            # Map Spanish variations to English
+            # Spanish mapping
             spanish_map = {
                 "saludo": "greeting",
-                "conversacional": "conversational",
+                "conversacional": "conversational", 
                 "conceptual": "conceptual",
                 "datos": "data_driven",
                 "complejo": "complex",
                 "compleja": "complex"
             }
             
-            # Check Spanish mapping first
             if response in spanish_map:
                 result = spanish_map[response]
                 logger.info(f"Query classified as: {result} (from {response})")
                 return result
             
-            # Direct match
             if response in valid_types:
                 logger.info(f"Query classified as: {response}")
                 return response
             
-            # Partial match (handle variations like "data_driven:" or "category: greeting")
+            # Partial match
             for valid_type in valid_types:
                 if valid_type.replace("_", " ") in response or valid_type.replace("_", "-") in response:
                     logger.info(f"Query classified as: {valid_type}")
                     return valid_type
             
-            # Default to data_driven as it's the most common for research queries
+            # Heuristic fallback: if query contains data keywords, assume data_driven
+            data_keywords = ["investigador", "researcher", "paper", "publicación", "h-index", 
+                           "citaciones", "citation", "top", "ranking", "cuál", "cuánt", "how many",
+                           "who", "list", "find", "buscar", "universidad", "institution"]
+            
+            query_lower = query.lower()
+            if any(keyword in query_lower for keyword in data_keywords):
+                logger.info("Classified as data_driven (heuristic - data keywords found)")
+                return "data_driven"
+            
+            # Final default
             logger.warning(f"Unclear classification ('{response}'), defaulting to data_driven")
             return "data_driven"
             
