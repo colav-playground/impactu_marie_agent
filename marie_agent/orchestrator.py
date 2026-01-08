@@ -238,10 +238,16 @@ class OrchestratorAgent:
             for i, step in enumerate(plan, 1):
                 logger.info(f"  {i}. {step.agent_name}: {step.title}")
             
+            # Execute Prompt Engineer Agent to optimize prompts for all agents
+            logger.info("🎨 Engineering prompts for agents...")
+            from marie_agent.agents.prompt_engineer import prompt_engineer_agent
+            state = prompt_engineer_agent(state)
+            
             add_audit_event(state, "plan_created", {
                 "mode": plan_dict["mode"],
                 "steps": len(plan),
-                "needs_rag": needs_rag
+                "needs_rag": needs_rag,
+                "prompts_engineered": "engineered_prompts" in state
             })
             
         except Exception as e:

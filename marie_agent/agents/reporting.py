@@ -76,10 +76,10 @@ class ReportingAgent:
     
     def _generate_natural_answer(self, query: str, state: AgentState) -> str:
         """
-        Generate natural language answer that directly addresses the question.
-        Uses retrieved data as context but presents in flowing, natural text.
+        Generate natural language answer using Prompt Engineer Service.
         """
         from marie_agent.adapters.llm_factory import create_llm_adapter
+        from marie_agent.agents.prompt_engineer import get_prompt_engineer
         
         # Get retrieved documents and metrics
         evidence_map = state.get("evidence_map", {})
@@ -87,15 +87,34 @@ class ReportingAgent:
         metrics = state.get("computed_metrics", {})
         entities = state.get("entities_resolved", {})
         
-        if not documents:
-            # No sources available, use LLM knowledge
-            llm = create_llm_adapter()
-            prompt = f"""Responde de forma clara y concisa a esta pregunta: {query}
-
-Proporciona una explicación natural y educativa en español."""
-            
-            response = llm.generate(prompt)
-            return response
+        # Prepare context for prompt engineer
+        context = {
+            "query": query,
+            "documents": documents,
+            "metrics": metrics,
+            "entities": entities,
+            "has_sources": len(documents) > 0
+        }
+        
+        # Get prompt engineer service
+        prompt_engineer = get_prompt_engineer()
+        
+        # Build optimized prompt using Chain-of-Thought for synthesis
+        task_description = "Synthesize information from sources and generate a comprehensive answer"
+        optimized_prompt = prompt_engineer.build_prompt(
+            agent_name="reporting",
+            task_description=task_description,
+            context=context,
+            technique="chain-of-thought"  # Use CoT for reasoning
+        )
+        
+        logger.info("✨ Using Chain-of-Thought prompt from Prompt Engineer")
+        
+        # Generate answer using optimized prompt
+        llm = create_llm_adapter()
+        response = llm.generate(optimized_prompt, max_tokens=512)
+        
+        return response
         
         # Build context from documents and metrics
         context_parts = []
