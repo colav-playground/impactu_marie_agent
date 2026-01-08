@@ -14,17 +14,24 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class PlanStep:
-    """A step in the execution plan."""
+    """A step in the execution plan with enhanced metadata for task decomposition."""
     agent_name: str   # Which agent executes this
     title: str        # Short description
     details: str      # Detailed instructions
+    metadata: Dict[str, Any] = None  # Enhanced metadata (task_id, dependencies, variables)
     
-    def to_dict(self) -> Dict[str, str]:
-        """Convert to dictionary."""
+    def __post_init__(self):
+        """Initialize metadata if not provided."""
+        if self.metadata is None:
+            self.metadata = {}
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary with all metadata."""
         return {
             "agent_name": self.agent_name,
             "title": self.title,
-            "details": self.details
+            "details": self.details,
+            "metadata": self.metadata
         }
 
 
@@ -266,42 +273,82 @@ class DynamicPlanGenerator:
     
     def _generate_plan_with_llm(self, query: str, query_type: str) -> List[PlanStep]:
         """
-        Generate execution plan using LLM intelligence.
+        Generate execution plan using LLM intelligence with enhanced decomposition.
         
         Args:
             query: User query
             query_type: Type of query (greeting, conversational, conceptual, data_driven, complex)
             
         Returns:
-            List of plan steps
+            List of plan steps with task IDs, output variables, and dependencies
         """
-        # Simplified prompts per query type for faster inference
+        # Simplified prompts for simple queries
         if query_type in ["greeting", "conversational"]:
             prompt = f"""Generate JSON plan for query: "{query}"
 Type: {query_type}
 
 Response format:
-[{{"agent_name":"reporting","title":"Respond to user","details":"Reply appropriately to: {query}"}}]"""
-            max_tokens = 100
-        else:
-            prompt = f"""Generate JSON plan:
+[{{"task_id":"E1","agent_name":"reporting","task_type":"report","title":"Respond to user","details":"Reply appropriately to: {query}","output_var":"answer","dependencies":[]}}]"""
+            max_tokens = 150
+        
+        elif query_type == "conceptual":
+            prompt = f"""Generate JSON plan for conceptual query: "{query}"
+
+Response format:
+[{{"task_id":"E1","agent_name":"reporting","task_type":"explain","title":"Explain concept","details":"Provide conceptual explanation for: {query}","output_var":"answer","dependencies":[]}}]"""
+            max_tokens = 200
+            
+        else:  # data_driven or complex - ENHANCED DECOMPOSITION
+            prompt = f"""You are an expert query planner. DECOMPOSE this query into atomic sub-tasks:
 
 Query: "{query}"
-Type: {query_type}
 
-Agents: entity_resolution, retrieval, metrics, citations, reporting
+Analysis:
+1. Main intent? (search, comparison, ranking, aggregation)
+2. Entities? (researchers, institutions, papers)
+3. Metrics? (h-index, citations, count)
+4. Filters? (country, year, field)
 
-Rules:
-- greeting/conversational: just reporting
-- conceptual: retrieval + reporting  
-- data_driven: entity_resolution (if has institution/person) + retrieval + metrics + reporting
-- complex: entity_resolution + retrieval + metrics + citations + reporting
+Valid agents:
+- entity_resolution: Resolve institutions/researchers
+- retrieval: Search documents/data
+- metrics: Calculate h-index, citations
+- citations: Format citations
+- reporting: Generate answer
 
-JSON array format:
-[{{"agent_name":"X","title":"Y","details":"Z"}}]
+Task types: search, resolve, compute, filter, rank, aggregate, report
 
-Plan:"""
-            max_tokens = 512
+Output JSON array with:
+- task_id: E1, E2, E3...
+- agent_name
+- task_type  
+- title: Short description
+- details: Full instructions (use $E1, $E2 for variables)
+- output_var: Variable name to store result
+- dependencies: [task_ids this depends on]
+- inputs: ["$var1", "$var2"] (optional)
+- filters: {{}} (optional)
+
+EXAMPLES:
+
+Query: "Top 5 Colombian AI researchers by h-index"
+[
+  {{"task_id":"E1","agent_name":"retrieval","task_type":"search","title":"Find AI researchers","details":"Search researchers (field=AI, country=Colombia)","output_var":"researchers","dependencies":[],"filters":{{"field":"AI","country":"Colombia"}}}},
+  {{"task_id":"E2","agent_name":"metrics","task_type":"compute","title":"Calculate h-index","details":"Compute h-index for $researchers","output_var":"h_indices","dependencies":["E1"],"inputs":["$researchers"]}},
+  {{"task_id":"E3","agent_name":"reporting","task_type":"rank","title":"Rank top 5","details":"Rank by $h_indices, take top 5, generate report","output_var":"final_answer","dependencies":["E2"],"inputs":["$h_indices","$researchers"]}}
+]
+
+Query: "UdeA ML papers 2020-2024"  
+[
+  {{"task_id":"E1","agent_name":"entity_resolution","task_type":"resolve","title":"Resolve UdeA","details":"Resolve institution: UdeA","output_var":"institution","dependencies":[]}},
+  {{"task_id":"E2","agent_name":"retrieval","task_type":"search","title":"Find ML papers","details":"Search papers (institution=$institution, field=ML, year>=2020)","output_var":"papers","dependencies":["E1"],"inputs":["$institution"],"filters":{{"field":"ML","year_min":2020}}}},
+  {{"task_id":"E3","agent_name":"reporting","task_type":"report","title":"Generate report","details":"Report on $papers","output_var":"final_answer","dependencies":["E2"],"inputs":["$papers"]}}
+]
+
+Now plan for: "{query}"
+
+JSON array:"""
+            max_tokens = 1024
 
         try:
             response = self.llm.generate(prompt, max_tokens=max_tokens).strip()
@@ -316,7 +363,7 @@ Plan:"""
                 json_str = json_match.group(0)
                 plan_data = json.loads(json_str)
                 
-                # Validate and create PlanSteps
+                # Validate and create enhanced PlanSteps
                 plan = []
                 valid_agents = ["entity_resolution", "retrieval", "metrics", "citations", "reporting"]
                 
@@ -329,14 +376,41 @@ Plan:"""
                         logger.warning(f"Invalid agent name: {agent_name}, skipping step")
                         continue
                     
+                    # Extract enhanced fields
+                    task_id = step.get("task_id", f"E{len(plan)+1}")
+                    task_type = step.get("task_type", "execute")
+                    output_var = step.get("output_var", "")
+                    dependencies = step.get("dependencies", [])
+                    inputs = step.get("inputs", [])
+                    filters = step.get("filters", {})
+                    
+                    # Build enhanced details with metadata
+                    details = step.get("details", f"Process query: {query}")
+                    if output_var:
+                        details += f" → ${output_var}"
+                    if dependencies:
+                        details += f" (depends on: {', '.join(dependencies)})"
+                    
                     plan.append(PlanStep(
                         agent_name=agent_name,
-                        title=step.get("title", "Execute step"),
-                        details=step.get("details", f"Process query: {query}")
+                        title=step.get("title", f"{task_type.title()} step"),
+                        details=details
                     ))
+                    
+                    # Store metadata for later use (Phase 2 will use this)
+                    if not hasattr(plan[-1], 'metadata'):
+                        plan[-1].metadata = {}
+                    plan[-1].metadata.update({
+                        'task_id': task_id,
+                        'task_type': task_type,
+                        'output_var': output_var,
+                        'dependencies': dependencies,
+                        'inputs': inputs,
+                        'filters': filters
+                    })
                 
                 if plan:
-                    logger.info(f"Generated plan with {len(plan)} steps using LLM")
+                    logger.info(f"Generated enhanced plan with {len(plan)} steps using LLM")
                     return plan
             
             logger.warning(f"Could not parse LLM response as JSON, using fallback")

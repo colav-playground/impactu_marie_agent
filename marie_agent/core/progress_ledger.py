@@ -63,19 +63,114 @@ class ProgressLedger:
 
 class ProgressTracker:
     """
-    Generates and manages progress ledgers.
+    Generates and manages progress ledgers with variable storage.
     
     Uses LLM to assess progress and determine next actions.
+    Stores task outputs as variables for referencing in subsequent tasks.
     """
     
     def __init__(self, llm):
         """
-        Initialize progress tracker.
+        Initialize progress tracker with variable storage (Magentic + ReWOO).
         
         Args:
             llm: LLM for generating ledgers
         """
         self.llm = llm
+        self.variable_store: Dict[str, Any] = {}  # Store task outputs ($E1, $E2, etc.)
+        self.execution_history: list = []  # Track all executed tasks
+        
+        logger.info("ProgressTracker initialized with variable storage")
+    
+    def store_variable(self, var_name: str, value: Any, task_id: str = "") -> None:
+        """
+        Store a variable from task execution (ReWOO-style).
+        
+        Args:
+            var_name: Variable name (e.g., 'researchers', 'h_indices')
+            value: Variable value
+            task_id: Task ID that produced this (e.g., 'E1')
+        """
+        # Remove $ prefix if present
+        var_name = var_name.lstrip('$')
+        
+        self.variable_store[var_name] = value
+        logger.info(f"✓ Variable stored: ${var_name} (from {task_id or 'unknown'})")
+        
+        # Track in history
+        self.execution_history.append({
+            'task_id': task_id,
+            'variable': var_name,
+            'value_type': type(value).__name__,
+            'value_size': len(value) if isinstance(value, (list, dict, str)) else 1
+        })
+    
+    def get_variable(self, var_name: str) -> Any:
+        """
+        Retrieve a variable value.
+        
+        Args:
+            var_name: Variable name (with or without $ prefix)
+            
+        Returns:
+            Variable value or None if not found
+        """
+        var_name = var_name.lstrip('$')
+        value = self.variable_store.get(var_name)
+        
+        if value is None:
+            logger.warning(f"Variable ${var_name} not found in store")
+        
+        return value
+    
+    def resolve_variables(self, text: str) -> str:
+        """
+        Replace $variable references with actual values in text.
+        
+        Args:
+            text: Text containing $var references
+            
+        Returns:
+            Text with variables resolved
+        """
+        import re
+        
+        # Find all $var patterns
+        var_pattern = r'\$(\w+)'
+        matches = re.findall(var_pattern, text)
+        
+        resolved_text = text
+        for var_name in matches:
+            value = self.get_variable(var_name)
+            if value is not None:
+                # Convert value to string representation
+                if isinstance(value, (list, dict)):
+                    value_str = f"<{type(value).__name__} with {len(value)} items>"
+                else:
+                    value_str = str(value)
+                
+                resolved_text = resolved_text.replace(f"${var_name}", value_str)
+                logger.debug(f"Resolved ${var_name} in text")
+        
+        return resolved_text
+    
+    def get_available_variables(self) -> Dict[str, str]:
+        """
+        Get list of available variables with their types.
+        
+        Returns:
+            Dict of variable names to type descriptions
+        """
+        return {
+            f"${name}": type(value).__name__
+            for name, value in self.variable_store.items()
+        }
+    
+    def clear_variables(self) -> None:
+        """Clear all stored variables (for new query)."""
+        self.variable_store.clear()
+        self.execution_history.clear()
+        logger.info("Variable store cleared")
     
     def generate_ledger(
         self,

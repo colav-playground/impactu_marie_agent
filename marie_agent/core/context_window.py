@@ -25,10 +25,11 @@ class Message:
 
 class ContextWindow:
     """
-    Manages context across agent interactions.
+    Manages context across agent interactions with ReAct-style reasoning traces.
     
     Responsibilities:
     - Store all agent messages and outputs
+    - Track explicit reasoning (thought/action/observation)
     - Summarize when context grows too large
     - Provide relevant context to agents
     - Track information gathered
@@ -36,7 +37,7 @@ class ContextWindow:
     
     def __init__(self, max_tokens: int = 8000):
         """
-        Initialize context window.
+        Initialize context window with reasoning trace support.
         
         Args:
             max_tokens: Maximum tokens before summarization
@@ -45,7 +46,91 @@ class ContextWindow:
         self.summaries: List[str] = []
         self.max_tokens = max_tokens
         self.current_tokens = 0
+        self.reasoning_trace: List[Dict[str, Any]] = []  # NEW: ReAct-style traces
         
+        logger.info("ContextWindow initialized with reasoning trace support")
+    
+    def add_reasoning_step(
+        self,
+        thought: str,
+        action: str,
+        observation: str,
+        agent_name: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Add a ReAct-style reasoning step (Magentic + ReAct compatible).
+        
+        Args:
+            thought: Agent's reasoning/thinking
+            action: Action taken by agent
+            observation: Result/observation from action
+            agent_name: Name of agent
+            metadata: Additional metadata (task_id, variables, etc.)
+        """
+        step = {
+            "thought": thought,
+            "action": action,
+            "observation": observation,
+            "agent": agent_name,
+            "timestamp": datetime.utcnow().isoformat(),
+            "metadata": metadata or {}
+        }
+        
+        self.reasoning_trace.append(step)
+        
+        # Also add to regular messages for context
+        reasoning_text = (
+            f"💭 Thought: {thought}\n"
+            f"⚡ Action: {action}\n"
+            f"👁️ Observation: {observation}"
+        )
+        
+        self.add_message(
+            role="agent",
+            content=reasoning_text,
+            agent_name=agent_name,
+            metadata={"type": "reasoning_trace", **(metadata or {})}
+        )
+        
+        logger.debug(f"ReAct trace added for {agent_name}")
+    
+    def get_reasoning_trace(self, agent_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get reasoning trace, optionally filtered by agent.
+        
+        Args:
+            agent_name: Filter by specific agent (optional)
+            
+        Returns:
+            List of reasoning steps
+        """
+        if agent_name:
+            return [step for step in self.reasoning_trace if step["agent"] == agent_name]
+        return self.reasoning_trace
+    
+    def get_reasoning_summary(self) -> str:
+        """
+        Get a summary of all reasoning steps.
+        
+        Returns:
+            Formatted reasoning summary
+        """
+        if not self.reasoning_trace:
+            return "No reasoning steps recorded yet."
+        
+        summary_parts = ["=== Reasoning Trace ===\n"]
+        
+        for i, step in enumerate(self.reasoning_trace, 1):
+            summary_parts.append(
+                f"{i}. [{step['agent']}]\n"
+                f"   Thought: {step['thought'][:100]}...\n"
+                f"   Action: {step['action'][:100]}...\n"
+                f"   Observation: {step['observation'][:100]}...\n"
+            )
+        
+        return "\n".join(summary_parts)
+    
     def add_message(
         self,
         role: str,
