@@ -13,8 +13,8 @@ load_dotenv()
 
 class LLMConfig(BaseModel):
     """LLM configuration."""
-    provider: str = Field(default="vllm", description="LLM provider (vllm, anthropic)")
-    model: str = Field(default="Qwen/Qwen2-1.5B-Instruct", description="Model name")
+    provider: str = Field(default="ollama", description="LLM provider (ollama, vllm, anthropic)")
+    model: str = Field(default="phi3:mini", description="Model name")
     temperature: float = Field(default=0.1, description="Temperature for generation")
     max_tokens: int = Field(default=4096, description="Max tokens for response")
     api_key: Optional[str] = Field(default=None, description="API key")

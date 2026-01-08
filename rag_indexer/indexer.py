@@ -153,13 +153,15 @@ class RAGIndexer:
         logger.info(f"Text split into {len(chunks)} chunks (original: {len(tokens)} tokens)")
         return chunks
     
-    def process_document(self, doc: Dict[str, Any], collection: str) -> Optional[Dict[str, Any]]:
+    def process_document(self, doc: Dict[str, Any], collection: str, 
+                        colombia_only: bool = False) -> Optional[Dict[str, Any]]:
         """
         Process a single document from any collection.
         
         Args:
             doc: Document from MongoDB
             collection: Collection name (works, person, affiliations)
+            colombia_only: If True, only process Colombian entities
             
         Returns:
             Processed document ready for indexing or None if invalid
@@ -167,21 +169,45 @@ class RAGIndexer:
         try:
             # Import functions based on collection
             if collection == 'works':
-                from .text_processing import extract_work_text, create_work_metadata, should_index_work
+                from .text_processing import (
+                    extract_work_text, create_work_metadata, 
+                    should_index_work, is_colombian_work
+                )
+                
+                # Filter by Colombia if requested
+                if colombia_only and not is_colombian_work(doc):
+                    return None
+                    
                 if not should_index_work(doc):
                     return None
                 text = extract_work_text(doc)
                 metadata = create_work_metadata(doc)
                 
             elif collection == 'person':
-                from .text_processing import extract_person_text, create_person_metadata, should_index_person
+                from .text_processing import (
+                    extract_person_text, create_person_metadata, 
+                    should_index_person, is_colombian_person
+                )
+                
+                # Filter by Colombia if requested
+                if colombia_only and not is_colombian_person(doc):
+                    return None
+                    
                 if not should_index_person(doc):
                     return None
                 text = extract_person_text(doc)
                 metadata = create_person_metadata(doc)
                 
             elif collection == 'affiliations':
-                from .text_processing import extract_affiliation_text, create_affiliation_metadata, should_index_affiliation
+                from .text_processing import (
+                    extract_affiliation_text, create_affiliation_metadata, 
+                    should_index_affiliation, is_colombian_affiliation
+                )
+                
+                # Filter by Colombia if requested
+                if colombia_only and not is_colombian_affiliation(doc):
+                    return None
+                    
                 if not should_index_affiliation(doc):
                     return None
                 text = extract_affiliation_text(doc)
@@ -279,7 +305,9 @@ class RAGIndexer:
     def index_works(self, 
                    collection_name: str = 'works',
                    limit: Optional[int] = None,
-                   delete_index: bool = True) -> Dict[str, int]:
+                   delete_index: bool = True,
+                   colombia_only: bool = False,
+                   index_suffix: str = '') -> Dict[str, int]:
         """
         Index documents from MongoDB to OpenSearch.
         Supports works, person, and affiliations collections.
@@ -288,6 +316,8 @@ class RAGIndexer:
             collection_name: MongoDB collection name (works, person, affiliations)
             limit: Maximum number of documents to index (None for all)
             delete_index: Whether to delete existing index before indexing
+            colombia_only: If True, only index Colombian entities
+            index_suffix: Optional suffix for index name (e.g., '_colombia')
             
         Returns:
             Dictionary with statistics
@@ -295,13 +325,14 @@ class RAGIndexer:
         logger.info("=" * 80)
         logger.info(f"Starting {collection_name} indexing")
         logger.info(f"Collection: {collection_name}")
+        logger.info(f"Colombia only: {colombia_only}")
         logger.info(f"Limit: {limit if limit else 'All documents'}")
         logger.info(f"Workers: {self.config.workers}")
         logger.info(f"Batch size: {self.config.batch_size}")
         logger.info("=" * 80)
         
         # Get index name
-        index_name = self.config.get_index_name(collection_name)
+        index_name = self.config.get_index_name(collection_name) + index_suffix
         
         # Create or recreate index
         if delete_index:
@@ -342,7 +373,8 @@ class RAGIndexer:
                 batch_stats = self._process_batch(
                     batch_docs,
                     index_name,
-                    collection_name  # Pass collection name
+                    collection_name,
+                    colombia_only  # Pass filter flag
                 )
                 
                 indexed += batch_stats['indexed']
@@ -384,7 +416,7 @@ class RAGIndexer:
         
         # Process final batch
         if batch_docs:
-            batch_stats = self._process_batch(batch_docs, index_name, collection_name)
+            batch_stats = self._process_batch(batch_docs, index_name, collection_name, colombia_only)
             indexed += batch_stats['indexed']
             skipped += batch_stats['skipped']
             errors += batch_stats['errors']
@@ -409,7 +441,8 @@ class RAGIndexer:
             'time': total_time
         }
     
-    def _process_batch(self, docs: List[Dict[str, Any]], index_name: str, collection_name: str) -> Dict[str, int]:
+    def _process_batch(self, docs: List[Dict[str, Any]], index_name: str, 
+                      collection_name: str, colombia_only: bool = False) -> Dict[str, int]:
         """
         Process a batch of documents with parallel processing.
         
@@ -417,6 +450,7 @@ class RAGIndexer:
             docs: List of documents from MongoDB
             index_name: OpenSearch index name
             collection_name: Collection name (works, person, affiliations)
+            colombia_only: If True, only process Colombian entities
             
         Returns:
             Dictionary with batch statistics
@@ -427,7 +461,10 @@ class RAGIndexer:
         
         # Process documents in parallel
         with ThreadPoolExecutor(max_workers=self.config.workers) as executor:
-            futures = [executor.submit(self.process_document, doc, collection_name) for doc in docs]
+            futures = [
+                executor.submit(self.process_document, doc, collection_name, colombia_only) 
+                for doc in docs
+            ]
             
             for future in as_completed(futures):
                 result = future.result()
@@ -484,7 +521,9 @@ class RAGIndexer:
     def run(self, 
             collection: str = 'works',
             limit: Optional[int] = None,
-            delete_index: bool = True) -> bool:
+            delete_index: bool = True,
+            colombia_only: bool = False,
+            index_suffix: str = '') -> bool:
         """
         Execute the complete indexing process.
         
@@ -492,6 +531,8 @@ class RAGIndexer:
             collection: Collection name to index
             limit: Maximum number of documents (None for all)
             delete_index: Whether to delete existing index
+            colombia_only: If True, only index Colombian entities
+            index_suffix: Optional suffix for index name (e.g., '_colombia')
             
         Returns:
             True if successful
@@ -511,7 +552,9 @@ class RAGIndexer:
         stats = self.index_works(
             collection_name=collection,
             limit=limit,
-            delete_index=delete_index
+            delete_index=delete_index,
+            colombia_only=colombia_only,
+            index_suffix=index_suffix
         )
         
         return stats['indexed'] > 0

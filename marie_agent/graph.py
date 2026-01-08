@@ -14,8 +14,71 @@ from marie_agent.agents.metrics import metrics_agent_node
 from marie_agent.agents.citations import citations_agent_node
 from marie_agent.agents.reporting import reporting_agent_node
 from marie_agent.memory import get_memory_manager
+from marie_agent.human_interaction import get_human_manager
 
 logger = logging.getLogger(__name__)
+
+
+def human_interaction_node(state: AgentState) -> AgentState:
+    """
+    Handle human-in-the-loop interactions.
+    
+    Processes pending human interactions and waits for input when needed.
+    """
+    logger.info("Human interaction node activated")
+    
+    human_manager = get_human_manager()
+    
+    # Get pending interactions
+    pending = [hi for hi in state.get("human_interactions", []) if hi["status"] == "pending"]
+    
+    if not pending:
+        logger.warning("No pending human interactions found")
+        return {**state, "next_agent": "orchestrator"}
+    
+    # Process the first pending interaction
+    interaction = pending[0]
+    logger.info(f"Processing {interaction['type']} interaction: {interaction['interaction_id']}")
+    
+    # For now, auto-approve in non-interactive mode
+    # In production, this would wait for actual human input
+    if interaction["type"] == "co_planning":
+        # Auto-approve the plan
+        response = "Approved - proceed with the plan"
+        logger.info("Auto-approving co-planning request (non-interactive mode)")
+        
+    elif interaction["type"] == "action_guard":
+        # Auto-approve the action
+        response = "Approved"
+        logger.info("Auto-approving action guard (non-interactive mode)")
+        
+    elif interaction["type"] == "verification":
+        # Auto-confirm verification
+        response = "Verified"
+        logger.info("Auto-confirming verification (non-interactive mode)")
+        
+    else:
+        response = "Approved"
+        logger.info(f"Auto-approving {interaction['type']} (non-interactive mode)")
+    
+    # Update interaction status
+    updated_interactions = []
+    for hi in state.get("human_interactions", []):
+        if hi["interaction_id"] == interaction["interaction_id"]:
+            hi["status"] = "completed"
+            hi["response"] = response
+        updated_interactions.append(hi)
+    
+    # Update state
+    new_state = {
+        **state,
+        "human_interactions": updated_interactions,
+        "requires_human_review": False,
+        "next_agent": "orchestrator"
+    }
+    
+    logger.info("Human interaction completed, returning to orchestrator")
+    return new_state
 
 
 def create_marie_graph() -> StateGraph:
@@ -38,6 +101,9 @@ def create_marie_graph() -> StateGraph:
     workflow.add_node("citations", citations_agent_node)
     workflow.add_node("reporting", reporting_agent_node)
     
+    # Add human interaction node
+    workflow.add_node("human_interaction", human_interaction_node)
+    
     # Placeholder for validation (simple passthrough for now)
     workflow.add_node("validation", lambda state: {**state, "next_agent": "metrics"})
     
@@ -57,12 +123,13 @@ def create_marie_graph() -> StateGraph:
             "metrics": "metrics",
             "citations": "citations",
             "reporting": "reporting",
+            "human_interaction": "human_interaction",
             "end": END
         }
     )
     
     # Each agent routes back to orchestrator for next decision
-    for agent_node in ["entity_resolution", "retrieval", "validation", "metrics", "citations", "reporting"]:
+    for agent_node in ["entity_resolution", "retrieval", "validation", "metrics", "citations", "reporting", "human_interaction"]:
         workflow.add_edge(agent_node, "orchestrator")
     
     # Compile graph

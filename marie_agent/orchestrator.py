@@ -11,6 +11,7 @@ from datetime import datetime
 from marie_agent.state import AgentState, add_audit_event, Task
 from marie_agent.adapters.llm_factory import get_llm_adapter
 from marie_agent.human_interaction import get_human_manager
+from marie_agent.services.colombian_detector import get_colombian_detector
 from marie_agent.config import config
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class OrchestratorAgent:
     def _needs_research_data(self, parsed_query: Dict[str, Any]) -> bool:
         """
         Determine if query requires database access (RAG).
+        Uses ONLY OpenSearch for Colombian entity detection.
         
         Args:
             parsed_query: Parsed query with intent, entities, etc.
@@ -39,10 +41,27 @@ class OrchestratorAgent:
         Returns:
             True if RAG pipeline needed, False for direct LLM response
         """
-        # Check for specific entity mentions
+        query_text = parsed_query.get("original_query", "")
+        
+        # Step 1: Detect Colombian entities from OpenSearch
+        detector = get_colombian_detector()
+        colombian_context = detector.detect_colombian_context(query_text)
+        
+        if colombian_context["has_colombian_entities"]:
+            logger.info(f"🇨🇴 RAG needed: Colombian entities detected - {colombian_context['detected_entities']}")
+            
+            # Check if reindexing needed
+            reindex_signal = detector.should_trigger_reindex(query_text)
+            if reindex_signal["needs_reindex"]:
+                logger.warning(f"⚠️ Missing entities in OpenSearch: {reindex_signal['missing_entities']}")
+                logger.warning("💡 RAG indexer should index these entities from MongoDB")
+            
+            return True
+        
+        # Step 2: Check for specific entity mentions from LLM parse
         entities = parsed_query.get("entities", {})
         if entities.get("institutions") or entities.get("authors") or entities.get("groups"):
-            logger.info("RAG needed: Specific entities mentioned")
+            logger.info("RAG needed: Specific entities mentioned (will verify in OpenSearch)")
             return True
         
         # Check intent

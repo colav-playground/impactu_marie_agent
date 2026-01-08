@@ -4,6 +4,84 @@ Text processing utilities for KAHI documents
 from typing import Dict, List, Any, Optional
 
 
+# ============================================================================
+# COLOMBIAN ENTITY FILTERS
+# ============================================================================
+
+def is_colombian_work(work: Dict[str, Any]) -> bool:
+    """
+    Check if a work has Colombian authors or affiliations.
+    
+    Args:
+        work: Work document from MongoDB
+        
+    Returns:
+        True if work has Colombian connection
+    """
+    # Check authors' affiliations
+    if work.get('authors') and isinstance(work['authors'], list):
+        for author in work['authors']:
+            if author.get('affiliations') and isinstance(author['affiliations'], list):
+                for aff in author['affiliations']:
+                    # Check if affiliation has Colombian address
+                    if aff.get('addresses') and isinstance(aff['addresses'], list):
+                        for addr in aff['addresses']:
+                            if addr.get('country_code') == 'CO':
+                                return True
+    
+    # Check direct affiliations in work
+    if work.get('affiliations') and isinstance(work['affiliations'], list):
+        for aff in work['affiliations']:
+            if aff.get('addresses') and isinstance(aff['addresses'], list):
+                for addr in aff['addresses']:
+                    if addr.get('country_code') == 'CO':
+                        return True
+    
+    return False
+
+
+def is_colombian_person(person: Dict[str, Any]) -> bool:
+    """
+    Check if a person has Colombian affiliation.
+    
+    Args:
+        person: Person document from MongoDB
+        
+    Returns:
+        True if person has Colombian affiliation
+    """
+    if person.get('affiliations') and isinstance(person['affiliations'], list):
+        for aff in person['affiliations']:
+            if aff.get('addresses') and isinstance(aff['addresses'], list):
+                for addr in aff['addresses']:
+                    if addr.get('country_code') == 'CO':
+                        return True
+    
+    return False
+
+
+def is_colombian_affiliation(affiliation: Dict[str, Any]) -> bool:
+    """
+    Check if an affiliation is Colombian.
+    
+    Args:
+        affiliation: Affiliation document from MongoDB
+        
+    Returns:
+        True if affiliation is in Colombia
+    """
+    if affiliation.get('addresses') and isinstance(affiliation['addresses'], list):
+        for addr in affiliation['addresses']:
+            if addr.get('country_code') == 'CO':
+                return True
+    
+    return False
+
+
+# ============================================================================
+# TEXT EXTRACTION
+# ============================================================================
+
 def inverted_index_to_text(inverted_index: Dict[str, List[int]]) -> str:
     """
     Convert an inverted index to text.

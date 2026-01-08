@@ -8,10 +8,29 @@
 
 ## 1. Executive Summary
 
-MARIE is a general-purpose AI assistant with specialized capabilities in research information and scientometric analysis. The system must be capable of answering **any type of question** - from general knowledge to highly specialized queries across multiple domains - while intelligently deciding when to leverage research data from Impactu platform.
+MARIE is a **general-purpose AI assistant** with specialized access to **Colombian scientific production data** through the Impactu platform. The system serves dual purposes:
 
-### Key Principle
-**Not all questions require RAG (Retrieval Augmented Generation).** The system must autonomously determine when to use research data versus when to provide direct responses based on the LLM's knowledge.
+1. **General AI Assistant**: Answer any question across all domains (science, technology, humanities, etc.)
+2. **Colombian Research Expert**: Leverage unique database of Colombian scientific output when relevant
+
+### Key Principles
+
+**🇨🇴 Colombian Scientific Production Database**
+- MARIE has exclusive access to comprehensive data on Colombian research output
+- Includes institutions, researchers, papers, patents, and scientometric metrics from Colombia
+
+**⚖️ Balanced Information Strategy**
+- **Not all questions require RAG** - General knowledge uses LLM directly
+- **Scientific topics CAN use RAG** - But it's optional, not mandatory
+- **Colombian context ENABLES RAG** - When Colombia is mentioned, database becomes valuable resource
+- **Hybrid approach preferred** - Combine LLM knowledge with database facts when beneficial
+
+**🤖 Multi-Agent Intelligence**
+The orchestrator must understand:
+- When database adds value vs. when it's unnecessary
+- Balance between speed (direct LLM) and depth (RAG with evidence)
+- Colombian context as trigger for potential database consultation
+- Scientific queries as opportunities (not obligations) for RAG
 
 ---
 
@@ -25,25 +44,42 @@ The system MUST be able to respond to:
 - **Humanities** (philosophy, literature, arts)
 - **Practical advice** (how-to questions, recommendations)
 
-**No RAG required** for these types of questions.
+**No RAG required** for these types of questions (unless Colombian context added).
 
-### 2.2 Research-Specific Queries
-The system MUST be able to answer:
-- Scientometric analysis (citations, h-index, impact factors)
-- Author productivity and collaboration patterns
-- Institutional research output
-- Research trends and emerging topics
-- Funding and grant analysis
+### 2.2 Colombian Research-Specific Queries
+The system has **unique access to Colombian scientific production data** and SHOULD use it when:
+- **Colombian institutions mentioned** (direct or abbreviated): "Universidad Nacional", "UdeA", "Javeriana", "Los Andes"
+- **Colombian researchers** identified (by name or context)
+- **Colombian research groups** or departments
+- **Colombian geographic context** in research: "Medellín research center", "Bogotá university", etc.
+- **Quantitative queries** about Colombian entities: "How many papers...", "Top researchers..."
+- **Comparative analysis** involving Colombian entities
 
-**RAG required** - Must retrieve data from Impactu MongoDB and OpenSearch.
+**Key: User does NOT need to say "Colombia" or "Colombian"** - The system must recognize Colombian entities automatically.
 
-### 2.3 Hybrid Queries
-The system MUST handle questions that combine general knowledge with research data:
-- "Explain quantum computing and show me top researchers in this field"
-- "What is the economic impact of AI? Include research on this topic"
-- "Describe climate change policies and reference relevant studies"
+**RAG strongly recommended** - Leverage unique Colombian database.
 
-**Partial RAG** - Combine LLM knowledge with selective data retrieval.
+**Examples:**
+- ✅ "Papers from UdeA" → RAG (UdeA is Colombian)
+- ✅ "Research at Universidad Nacional" → RAG (Colombian institution)
+- ✅ "Dr. María García publications" → Check DB, if Colombian → RAG
+- ❌ "What is machine learning?" → No RAG (no entities)
+
+### 2.3 General Research Queries (Non-Colombian)
+The system CAN answer research questions about:
+- International institutions, researchers, topics
+- Global scientometric questions
+- General research methodology
+
+**RAG optional** - Use if entities exist in database, otherwise LLM knowledge.
+
+### 2.4 Hybrid Queries
+The system MUST handle questions that combine general knowledge with Colombian research data:
+- "Explain quantum computing and show me Colombian researchers in this field"
+- "What is the economic impact of AI? Include Colombian research on this topic"
+- "Describe climate change and reference Colombian studies"
+
+**Balanced approach** - Combine LLM knowledge with selective Colombian data retrieval.
 
 ---
 
@@ -53,9 +89,16 @@ The system MUST handle questions that combine general knowledge with research da
 
 The orchestrator agent MUST activate RAG retrieval when:
 
-✅ **Query mentions specific entities:**
-- Institution names: "Universidad de Antioquia", "MIT", "Oxford"
-- Author names: "Dr. John Smith", "María García"
+✅ **Colombian entities detected (explicit or implicit):**
+- Colombian institutions: "Universidad de Antioquia", "UdeA", "Universidad Nacional de Colombia", "UniAndes", "Javeriana", etc.
+- Colombian researchers: "Juan Pérez", "María García" (if in Colombian context)
+- Colombian research groups or departments
+- Colombian geographic locations in research context: "Medellín", "Bogotá", "Cali" + research terms
+- **Note:** User does NOT need to say "Colombia" or "Colombian" explicitly - just mentioning the entity is enough
+
+✅ **Query mentions specific entities (any):**
+- Any institution name (check if exists in database)
+- Any author name (check if exists in database)
 - Research groups or departments
 - Specific papers, patents, or datasets
 
@@ -67,15 +110,29 @@ The orchestrator agent MUST activate RAG retrieval when:
 - "H-index", "Impact factor"
 
 ✅ **Query asks for specific research artifacts:**
-- "Papers about quantum computing"
-- "Patents in biotechnology"
-- "Datasets on climate change"
+- "Papers about [topic]" + entity mention
+- "Patents in biotechnology [from specific place]"
+- "Research on [topic]" + specific context
 - "Software projects from..."
 
 ✅ **Query requires evidence-based answers:**
 - "Show me proof that..."
 - "What's the evidence for...?"
 - "Reference studies on..."
+
+**🎯 Colombian Context Detection:**
+```
+Query: "Papers from UdeA" → Detect: UdeA = Colombian → Use RAG
+Query: "Research at Universidad Nacional" → Detect: Colombian institution → Use RAG
+Query: "Dr. Juan Pérez publications" → Check database → If Colombian, use RAG
+Query: "AI research in Medellín" → Detect: Medellín + research → Use RAG
+Query: "What is AI?" → No entities detected → Direct LLM (no RAG)
+```
+
+**🎯 Balanced Approach:**
+- Scientific topics alone: **Direct LLM** (e.g., "What is photosynthesis?")
+- Scientific topics + Colombian entity: **Consider RAG** (e.g., "Photosynthesis research at UdeA")
+- Colombian entity + quantitative: **Definitely RAG** (e.g., "Top papers from Universidad Nacional")
 
 ### 3.2 When NOT to Use RAG
 
@@ -111,17 +168,38 @@ The system MUST respond directly (LLM only) when:
 ```
 Query → Intent Detection (LLM) → Classification
                                       ↓
-            ┌─────────────────────────┴──────────────────────┐
-            ↓                                                  ↓
-    Needs Research Data?                               General Knowledge?
-            ↓                                                  ↓
-    YES → RAG Pipeline                                 NO → Direct LLM Response
-    - Entity Resolution                                - No database access
-    - Retrieval                                        - Fast response
-    - Metrics                                          - No citations needed
-    - Citations                                        
-    - Evidence-based answer                            
+            ┌─────────────────────────┴──────────────────────────────┐
+            ↓                                                          ↓
+    Mentions Colombia/Colombian entities?                     General topic?
+            ↓                                                          ↓
+    YES → Consider RAG                                        NO → Direct LLM
+    (Check if adds value)                                     (Fast response)
+            ↓
+    Needs specific data?
+    ├─ YES → RAG Pipeline
+    │   - Entity Resolution
+    │   - Retrieval from Colombian DB
+    │   - Metrics from Impactu
+    │   - Evidence-based answer
+    │
+    └─ NO → Hybrid Response
+        - LLM explanation
+        - Optional: Add Colombian data if relevant
+        - Balanced information
 ```
+
+**Examples of Balanced Decisions:**
+
+| Query | Decision | Reasoning |
+|-------|----------|-----------|
+| "What is machine learning?" | Direct LLM | General definition, no Colombian context |
+| "Machine learning research in Colombia" | RAG | Colombian context, use database |
+| "Explain photosynthesis" | Direct LLM | Biology concept, no research query |
+| "Photosynthesis papers from UdeA" | RAG | Specific institution + papers request |
+| "Best universities in Colombia" | Hybrid | LLM knowledge + RAG data for rankings |
+| "Top Colombian researchers in AI" | RAG | Colombian context + quantitative request |
+| "History of Colombia" | Direct LLM | General history, not research-focused |
+| "Research on Colombian history" | Consider RAG | Might have papers in database |
 
 ---
 
@@ -193,61 +271,72 @@ MUST combine both approaches:
 
 ---
 
-## 5. Multi-Agent Architecture
+## 5. Multi-Agent Architecture (Magentic)
+
+MARIE implements the **Magentic Architecture** for multi-agent orchestration with human-in-the-loop capabilities.
 
 ### 5.1 Agent Roles
 
 #### Orchestrator Agent (Always Active)
-- **Responsibility:** Query understanding, intent detection, routing decisions
-- **LLM Usage:** Parse query, determine if RAG is needed
+- **Responsibility:** Query understanding, intent detection, **Colombian entity recognition**, routing decisions
+- **LLM Usage:** Parse query, detect entities (especially Colombian), determine if RAG is needed
+- **Colombian Detection:** Must recognize Colombian institutions, researchers, locations without explicit "Colombia" mention
 - **Output:** Routing decision (RAG pipeline vs direct response)
+- **Magentic Role:** Central coordinator, plan creator, human collaboration manager
 
 #### Entity Resolution Agent (Conditional)
-- **Activation:** Only when specific entities mentioned
+- **Activation:** Only when specific entities mentioned (especially Colombian)
 - **Responsibility:** Disambiguate institutions, authors, groups
 - **Data Source:** MongoDB (institutions, persons collections)
+- **Colombian Focus:** Prioritize Colombian entity resolution
+- **Magentic Role:** Specialized agent with ledger state updates
 
 #### Retrieval Agent (Conditional)
-- **Activation:** Only when research data needed
-- **Responsibility:** Fetch papers, datasets, patents
+- **Activation:** Only when research data needed from database
+- **Responsibility:** Fetch papers, datasets, patents (primarily Colombian)
 - **Data Source:** OpenSearch (works) + MongoDB (metadata)
+- **Magentic Role:** RAG specialist agent with evidence collection
 
 #### Metrics Agent (Conditional)
 - **Activation:** Only when quantitative analysis requested
 - **Responsibility:** Compute h-index, productivity, impact metrics
 - **Data Source:** MongoDB aggregations
+- **Magentic Role:** Analytics specialist with ledger tracking
 
 #### Citations Agent (Conditional)
-- **Activation:** Only when evidence mapping needed
-- **Responsibility:** Map evidence to claims, build reference list
+- **Activation:** Only when evidence mapping needed for research responses
+- **Responsibility:** Map evidence to claims, build reference list with Impactu URLs
 - **Data Source:** Retrieved documents
+- **Magentic Role:** Evidence tracking and citation management
 
 #### Reporting Agent (Always Active)
 - **Responsibility:** Format final response based on query type
 - **Modes:** 
-  - Research mode (with citations, Impactu links)
-  - General mode (clean explanation, no refs)
-  - Hybrid mode (combination)
+  - **General mode:** Clean explanation, no citations (for general knowledge)
+  - **Research mode:** Evidence-based with citations and Impactu links (for Colombian research)
+  - **Hybrid mode:** Combination of explanation + selective references
+- **Magentic Role:** Final synthesis with confidence assessment
 
-### 5.2 Routing Logic
+### 5.2 Routing Logic (Magentic Decision Flow)
 
 ```python
 def route_query(parsed_query: Dict) -> List[str]:
     """
-    Determine which agents to activate based on query analysis.
+    Magentic orchestrator routing with Colombian entity awareness.
     
     Returns:
         List of agent names to execute
     """
-    agents = ["orchestrator"]  # Always runs
+    agents = ["orchestrator"]  # Always runs (Magentic coordinator)
     
-    # Check if research data needed
-    if needs_research_data(parsed_query):
+    # Check if Colombian entities or research data needed
+    if has_colombian_entities(parsed_query) or needs_research_data(parsed_query):
+        # Activate RAG pipeline
         agents.extend([
-            "entity_resolution",
-            "retrieval",
-            "metrics",
-            "citations"
+            "entity_resolution",  # Colombian entity disambiguation
+            "retrieval",          # Database access
+            "metrics",            # Quantitative analysis
+            "citations"           # Evidence mapping
         ])
     
     # Always format final response
@@ -255,25 +344,84 @@ def route_query(parsed_query: Dict) -> List[str]:
     
     return agents
 
+def has_colombian_entities(parsed_query: Dict) -> bool:
+    """
+    Detect Colombian entities without explicit "Colombia" mention.
+    """
+    entities = parsed_query.get("entities", {})
+    
+    # Check for Colombian institutions
+    colombian_institutions = [
+        "Universidad de Antioquia", "UdeA", "Universidad Nacional",
+        "Javeriana", "UniAndes", "Universidad de los Andes",
+        "Universidad del Valle", "EAFIT", "UPB", # etc.
+    ]
+    
+    # Check query text for Colombian markers
+    query_text = parsed_query.get("original_query", "").lower()
+    
+    for institution in colombian_institutions:
+        if institution.lower() in query_text:
+            return True
+    
+    # Check parsed entities
+    if entities.get("institutions") or entities.get("authors"):
+        # Cross-reference with Colombian database
+        return True  # Let entity_resolution agent determine
+    
+    return False
+
 def needs_research_data(parsed_query: Dict) -> bool:
     """
-    Determine if query requires database access.
+    Determine if query requires database access (beyond Colombian check).
     """
-    # Check for entity mentions
-    if parsed_query.get("entities"):
-        return True
-    
-    # Check for quantitative requests
+    # Quantitative requests
     if parsed_query.get("intent") in ["metrics", "comparison", "ranking"]:
         return True
     
-    # Check for specific artifact requests
+    # Specific artifact requests
     if parsed_query.get("artifact_type") in ["paper", "patent", "dataset"]:
         return True
     
-    # Default to general knowledge
+    # General knowledge - no RAG
+    if parsed_query.get("intent") in ["explanation", "definition", "greeting"]:
+        return False
+    
+    # Default: check for research indicators
     return False
 ```
+
+### 5.3 Magentic Architecture Compliance
+
+**Core Orchestration:** ✅
+- Central orchestrator with control flow
+- LLM-powered plan creation with Colombian awareness
+- Conditional routing based on entity detection
+- Task delegation to specialized agents
+
+**Ledger (State Management):** ✅  
+- Shared AgentState across all agents
+- Task tracking lifecycle (create, start, complete, fail)
+- Evidence map with Colombian source traceability
+- Audit trail for all decisions
+
+**Human-in-the-Loop (Magentic-UI):** ✅
+- Co-Planning: Collaborate on complex Colombian research queries
+- Co-Tasking: Human completes ambiguous entity resolution
+- Action Guards: Approve critical database operations
+- Verification: Validate results with low confidence
+
+**Evidence & Citations:** ✅
+- Evidence collection from Colombian database
+- Citation mapping with Impactu URLs
+- Source traceability (MongoDB/OpenSearch)
+- Confidence assessment with LLM reasoning
+
+**Advanced Features:** ✅
+- Multi-turn conversations with session memory
+- Long-term memory persistence
+- Context preservation for Colombian research context
+- Learning from feedback on entity recognition
 
 ---
 
