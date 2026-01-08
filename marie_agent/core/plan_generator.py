@@ -113,7 +113,11 @@ class DynamicPlanGenerator:
             query_type = self._analyze_query_type(query)
             
             # Generate plan based on type
-            if query_type == "conceptual":
+            if query_type == "greeting":
+                plan = self._plan_for_greeting(query)
+            elif query_type == "conversational":
+                plan = self._plan_for_conversational(query)
+            elif query_type == "conceptual":
                 plan = self._plan_for_conceptual_query(query)
             elif query_type == "data_driven":
                 plan = self._plan_for_data_query(query)
@@ -183,21 +187,44 @@ class DynamicPlanGenerator:
         Analyze query to determine type.
         
         Returns:
-            Query type: conceptual, data_driven, or complex
+            Query type: greeting, conversational, conceptual, data_driven, or complex
         """
-        query_lower = query.lower()
+        query_lower = query.lower().strip()
+        
+        # Greetings and simple interactions
+        greeting_keywords = [
+            "hola", "hello", "hi", "hey", "buenos días", "good morning",
+            "buenas tardes", "good afternoon", "buenas noches", "good evening",
+            "cómo estás", "how are you", "qué tal", "what's up"
+        ]
+        
+        # Conversational queries (not requiring RAG)
+        conversational_keywords = [
+            "gracias", "thanks", "ok", "vale", "entiendo", "i understand",
+            "adiós", "bye", "chao", "hasta luego", "see you"
+        ]
+        
+        # Check for greetings
+        if any(query_lower.startswith(kw) or query_lower == kw for kw in greeting_keywords):
+            return "greeting"
+        
+        # Check for conversational
+        if any(kw in query_lower for kw in conversational_keywords):
+            return "conversational"
         
         # Conceptual queries (explanations)
         conceptual_keywords = [
             "qué es", "what is", "explica", "explain",
-            "define", "definición", "concepto", "concept"
+            "define", "definición", "concepto", "concept",
+            "cómo funciona", "how does", "para qué sirve", "what for"
         ]
         
         # Data-driven queries (counts, lists, stats)
         data_keywords = [
             "cuántos", "how many", "lista", "list",
             "papers", "documentos", "investigadores", "researchers",
-            "top", "más citados", "most cited", "ranking"
+            "top", "más citados", "most cited", "ranking",
+            "estadísticas", "statistics", "análisis", "analysis"
         ]
         
         # Check for conceptual
@@ -213,6 +240,33 @@ class DynamicPlanGenerator:
             return "data_driven"
         
         return "complex"
+    
+    def _plan_for_greeting(self, query: str) -> List[PlanStep]:
+        """Generate plan for greetings and simple hellos."""
+        return [
+            PlanStep(
+                agent_name="reporting",
+                title="Respond to greeting",
+                details=(
+                    f"User said: '{query}'. Respond with a friendly greeting and offer help. "
+                    "Explain that you're MARIE, an AI assistant for scientometric queries about research "
+                    "publications, authors, and institutions. Ask how you can help them."
+                )
+            )
+        ]
+    
+    def _plan_for_conversational(self, query: str) -> List[PlanStep]:
+        """Generate plan for conversational responses (thanks, ok, bye, etc.)."""
+        return [
+            PlanStep(
+                agent_name="reporting",
+                title="Respond conversationally",
+                details=(
+                    f"User said: '{query}'. Respond appropriately in a brief, friendly manner. "
+                    "If they're saying goodbye, wish them well. If thanking, acknowledge it politely."
+                )
+            )
+        ]
     
     def _plan_for_conceptual_query(self, query: str) -> List[PlanStep]:
         """Generate plan for conceptual queries (definitions, explanations)."""

@@ -104,7 +104,7 @@ def print_error(error: str):
     print(f"\n{Color.RED}❌ Error: {error}{Color.END}\n")
 
 
-def simulate_execution(state: Dict[str, Any], orchestrator: OrchestratorAgent):
+def simulate_execution(state: Dict[str, Any], orchestrator: OrchestratorAgent, query: str):
     """
     Simulate execution showing steps in real-time.
     
@@ -159,15 +159,38 @@ def simulate_execution(state: Dict[str, Any], orchestrator: OrchestratorAgent):
     print_quality(quality_report)
     
     # Generate mock answer based on query
-    query = state.get('query', '')
+    query_lower = query.lower().strip()
+    query_words = query_lower.split()
     
-    if 'qué es' in query.lower() or 'what is' in query.lower():
+    # Check if it's a greeting (must be at start or alone)
+    is_greeting = (
+        query_lower in ['hola', 'hello', 'hi', 'hey'] or
+        (query_words and query_words[0] in ['hola', 'hello', 'hi', 'hey'])
+    )
+    
+    if is_greeting:
+        answer = """¡Hola! 👋 Soy MARIE (Multi-Agent Research Intelligence Engine).
+
+Estoy aquí para ayudarte con consultas sobre producción académica, investigadores e instituciones.
+
+Puedo ayudarte con:
+• Estadísticas de publicaciones
+• Información sobre investigadores y instituciones
+• Rankings y análisis cientométricos
+• Búsqueda de papers y citaciones
+
+¿En qué puedo ayudarte hoy?"""
+    
+    elif any(word in query_lower for word in ['gracias', 'thanks', 'ok', 'bye', 'adiós']):
+        answer = "¡De nada! Si necesitas algo más, aquí estaré. 😊"
+    
+    elif 'qué es' in query_lower or 'what is' in query_lower:
         answer = """Machine Learning es una rama de la inteligencia artificial que permite a los 
 sistemas aprender y mejorar automáticamente a partir de la experiencia sin ser programados 
 explícitamente. Se basa en el análisis de datos para identificar patrones y tomar decisiones 
 con mínima intervención humana."""
     
-    elif 'cuántos' in query.lower() or 'how many' in query.lower():
+    elif 'cuántos' in query_lower or 'how many' in query_lower:
         answer = """Según los datos indexados en OpenSearch:
 
 📊 Universidad de Antioquia - Estadísticas de publicaciones:
@@ -232,7 +255,7 @@ def main():
             state = orchestrator.plan(state)
             
             # Execute and show results
-            simulate_execution(state, orchestrator)
+            simulate_execution(state, orchestrator, query)
             
             print(f"{Color.BOLD}{Color.BLUE}{'─'*80}{Color.END}\n")
             
