@@ -76,12 +76,28 @@ def should_continue(state: AgentState) -> AgentRoute:
     
     # Get current step action
     step = steps[current_step]
-    step_lower = step.lower()
+    
+    # PRIORITY 1: Check for explicit agent_name in metadata (from enhanced planning)
+    if hasattr(step, 'metadata') and step.metadata:
+        agent_name = step.metadata.get('agent_name')
+        if agent_name in ["entity_resolution", "retrieval", "metrics", "citations", "reporting"]:
+            logger.info(f"✓ Routing to explicit agent from metadata: {agent_name}")
+            return agent_name
+    
+    # PRIORITY 2: Try to extract agent_name if step has it
+    if hasattr(step, 'agent_name'):
+        agent = step.agent_name
+        if agent in ["entity_resolution", "retrieval", "metrics", "citations", "reporting"]:
+            logger.info(f"✓ Routing to agent from step.agent_name: {agent}")
+            return agent
+    
+    # PRIORITY 3: Fallback to title/details parsing
+    step_lower = step.lower() if isinstance(step, str) else (step.title + " " + step.details).lower()
     
     # Route based on step content
     if "resolve" in step_lower or "entity" in step_lower or "institution" in step_lower:
         return "entity_resolution"
-    elif "retrieve" in step_lower or "search" in step_lower or "query" in step_lower:
+    elif "retrieve" in step_lower or "search" in step_lower or "query" in step_lower or "find" in step_lower or "buscar" in step_lower:
         # Check if we need OpenSearch expert
         if "opensearch" in step_lower or "index" in step_lower:
             return "opensearch_expert"
