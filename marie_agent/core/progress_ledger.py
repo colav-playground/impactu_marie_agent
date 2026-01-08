@@ -113,7 +113,7 @@ class ProgressTracker:
             )
             
             # Get LLM response
-            response = self.llm.invoke(prompt)
+            response = self.llm.generate(prompt)
             
             # Parse response
             ledger = self._parse_ledger_response(response, current_step)
