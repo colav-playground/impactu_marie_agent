@@ -113,6 +113,7 @@ class OpenSearchExpertAgent:
     - Query Memory: Learns from past attempts
     - Iterative Refinement: Tries up to MAX_ITERATIONS times
     - Self-Evaluation: Evaluates quality of results
+    - Query Logging: Saves queries to OpenSearch for analysis
     
     Workflow:
     1. INSPECT: Get index mappings and understand data structure
@@ -120,20 +121,84 @@ class OpenSearchExpertAgent:
     3. EXECUTE: Run query and evaluate results
     4. REFLECT: If poor results, reflect and regenerate (up to MAX_ITERATIONS)
     5. OPTIMIZE: Learn from successful patterns
+    6. LOG: Save query to OpenSearch for analytics
     """
     
     MAX_ITERATIONS = 3  # Maximum refinement attempts
     MIN_RESULTS_THRESHOLD = 3  # Minimum results to consider success
+    QUERY_LOG_INDEX = "impactu_marie_agent_query_logs"  # Index for query logging
     
     def __init__(self):
-        """Initialize OpenSearch expert with memory."""
+        """Initialize OpenSearch expert with memory and query logging."""
         self.client = OpenSearch(hosts=[config.opensearch.url], timeout=30)
         self.index_prefix = config.opensearch.index_prefix
         self.llm = get_llm_adapter()
         self.prompt_engineer = get_prompt_engineer()
         self.schema_cache = {}
         self.query_memory = QueryMemory()  # Add memory system
-        logger.info("OpenSearch Expert agent initialized with reflexion capabilities")
+        self._ensure_query_log_index()  # Create index for logging
+        logger.info("OpenSearch Expert agent initialized with reflexion and query logging")
+    
+    def _ensure_query_log_index(self):
+        """
+        Create index for query logging if it doesn't exist.
+        
+        Index stores:
+        - Original user query
+        - Generated OpenSearch query
+        - Results metadata (count, total hits)
+        - Iterations needed
+        - Success status
+        - Timestamp
+        """
+        try:
+            if not self.client.indices.exists(index=self.QUERY_LOG_INDEX):
+                logger.info(f"Creating query log index: {self.QUERY_LOG_INDEX}")
+                
+                index_body = {
+                    "settings": {
+                        "number_of_shards": 1,
+                        "number_of_replicas": 1
+                    },
+                    "mappings": {
+                        "properties": {
+                            "timestamp": {"type": "date"},
+                            "user_query": {"type": "text", "fields": {"keyword": {"type": "keyword"}}},
+                            "opensearch_query": {"type": "object", "enabled": False},  # Store as-is
+                            "result_count": {"type": "integer"},
+                            "total_hits": {"type": "integer"},
+                            "iterations": {"type": "integer"},
+                            "success": {"type": "boolean"},
+                            "execution_time_ms": {"type": "float"},
+                            "reflection_used": {"type": "boolean"},
+                            "query_id": {"type": "keyword"}
+                        }
+                    }
+                }
+                
+                self.client.indices.create(index=self.QUERY_LOG_INDEX, body=index_body)
+                logger.info(f"✓ Query log index created: {self.QUERY_LOG_INDEX}")
+            else:
+                logger.debug(f"Query log index already exists: {self.QUERY_LOG_INDEX}")
+        except Exception as e:
+            logger.error(f"Error creating query log index: {e}")
+    
+    def _save_query_log(self, query_data: Dict[str, Any]):
+        """
+        Save query execution details to OpenSearch for analysis.
+        
+        Args:
+            query_data: Dictionary with query execution details
+        """
+        try:
+            self.client.index(
+                index=self.QUERY_LOG_INDEX,
+                body=query_data,
+                refresh=True
+            )
+            logger.debug(f"✓ Query logged: {query_data['query_id']}")
+        except Exception as e:
+            logger.error(f"Error saving query log: {e}")
     
     def inspect_index_structure(self, index_pattern: str) -> Dict[str, Any]:
         """
@@ -526,16 +591,36 @@ NOW GENERATE (use exact user request text, select 2-4 fields from the list above
             state["opensearch_structure"] = structure
             state["opensearch_iterations"] = iteration
             
+            # Calculate execution time
+            execution_time = (datetime.now().timestamp() - state.get("start_time", datetime.now().timestamp())) * 1000
+            
+            # Log query to OpenSearch for analytics
+            query_log = {
+                "timestamp": datetime.now().isoformat(),
+                "query_id": state.get("session_id", "unknown"),
+                "user_query": query,
+                "opensearch_query": best_query,
+                "result_count": len(best_results),
+                "total_hits": best_total,
+                "iterations": iteration,
+                "success": best_total >= self.MIN_RESULTS_THRESHOLD,
+                "execution_time_ms": execution_time,
+                "reflection_used": iteration > 1
+            }
+            self._save_query_log(query_log)
+            
             add_audit_event(state, "opensearch_query_executed", {
                 "query_generated": "dynamic_with_reflexion",
                 "hits": len(best_results),
                 "total": best_total,
                 "iterations": iteration,
                 "memory_size": len(self.query_memory.attempts),
-                "success": best_total >= self.MIN_RESULTS_THRESHOLD
+                "success": best_total >= self.MIN_RESULTS_THRESHOLD,
+                "logged_to_index": self.QUERY_LOG_INDEX
             })
             
             logger.info(f"\n✅ OpenSearch Expert completed: {best_total} hits after {iteration} iteration(s)")
+            logger.info(f"📊 Query logged to: {self.QUERY_LOG_INDEX}")
             
         except Exception as e:
             logger.error(f"Error in OpenSearch Expert: {e}", exc_info=True)
