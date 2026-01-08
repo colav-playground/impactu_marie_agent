@@ -1,8 +1,9 @@
 # MARIE Agent System 🤖
 
-**Multi-Agent Research Intelligence Engine** for ImpactU CRIS
+**Multi-Agent Research Intelligence Engine** for ImpactU CRIS  
+Powered by **Magentic Architecture** ⚡
 
-Evidence-based scientometric analysis powered by LangGraph multi-agent orchestration.
+Evidence-based scientometric analysis with dynamic orchestration, quality evaluation, and semantic memory.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.0.5-green.svg)](https://langchain-ai.github.io/langgraph/)
@@ -10,22 +11,85 @@ Evidence-based scientometric analysis powered by LangGraph multi-agent orchestra
 
 ## 🎯 Features
 
+- 🎭 **Magentic Orchestration**: Dynamic plan generation with 3 operating modes (Planning, Execution, Quality Check)
+- 📊 **Quality-Driven**: 4-dimension evaluation (relevance, completeness, accuracy, groundedness) with automatic refinement
+- 💾 **Semantic Memory**: OpenSearch K-NN for automatic plan reuse (3x faster)
+- 🧠 **Smart Routing**: Only executes necessary agents (40-60% fewer agents per query)
 - 🤝 **Multi-Agent Architecture**: Specialized agents for entity resolution, retrieval, validation, metrics, citations, and reporting
 - 🏛️ **Hexagonal Architecture**: Clean separation with Ports & Adapters for maximum flexibility
 - 🚀 **Local LLM Support**: vLLM integration optimized for 4GB VRAM GPUs
 - 🔍 **Hybrid Search**: MongoDB (structured) + OpenSearch (RAG) for comprehensive evidence retrieval
-- 📊 **Confidence Scoring**: Every answer includes confidence level and reasoning
-- 🔗 **Evidence-Based**: All claims mapped to explicit evidence sources
 - 📝 **Complete Audit Trail**: Full tracking of agent decisions and data sources
+
+## 📦 Installation
+
+### From Source (Development)
+
+```bash
+# Clone repository
+git clone https://github.com/colav-playground/impactu_marie_agent.git
+cd impactu_marie_agent
+
+# Install in editable mode
+pip install -e .
+
+# marie_chat command is now available globally
+marie_chat
+```
+
+### From PyPI (Coming Soon)
+
+```bash
+pip install impactu-marie-agent
+marie_chat
+```
+
+## 🚀 Quick Start
+
+### Interactive Chat
+
+```bash
+marie_chat
+```
+
+Features:
+- Ask questions in natural language
+- See dynamically generated plans
+- Watch real-time execution
+- View quality evaluation (4 dimensions)
+- Get answers with bibliographic references
+
+### Example Queries
+
+```
+💬 ¿Qué es machine learning?
+   → Plan: 1 agent (reporting)
+   → Conceptual answer
+
+💬 ¿Cuántos papers tiene la Universidad de Antioquia?
+   → Plan: 4 agents (entity_resolution → retrieval → metrics → reporting)
+   → Data-driven answer from OpenSearch
+
+💬 Dame los top 5 papers de Colombia sobre IA con citaciones
+   → Plan: 4 agents with automatic refinement
+   → Complete answer with papers and citations
+```
 
 ## 🏗️ Architecture
 
-MARIE implements **Magentic principles** + **Hexagonal Architecture**:
+MARIE implements **Magentic Orchestration** + **Hexagonal Architecture**:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                   Presentation Layer                      │
-│               CLI, API, Web Interface                     │
+│                   ORCHESTRATOR (Magentic)                 │
+│         Planning → Execution → Quality Check              │
+│                                                           │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │  Planning   │→ │  Execution   │→ │ Quality Check  │  │
+│  │   Mode      │  │    Mode      │  │     Mode       │  │
+│  └─────────────┘  └──────────────┘  └────────────────┘  │
+│         ↑                                    │            │
+│         └────────── Refinement ──────────────┘            │
 └────────────────────┬─────────────────────────────────────┘
                      │
 ┌────────────────────▼─────────────────────────────────────┐
