@@ -10,6 +10,8 @@ from datetime import datetime
 
 from marie_agent.state import AgentState, add_audit_event, Task
 from marie_agent.adapters.llm_factory import get_llm_adapter
+from marie_agent.human_interaction import get_human_manager
+from marie_agent.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class OrchestratorAgent:
             confidence_threshold: Minimum confidence for autonomous decisions
         """
         self.confidence_threshold = confidence_threshold
+        self.human_manager = get_human_manager(config.enable_human_interaction)
         
     def plan(self, state: AgentState) -> AgentState:
         """
@@ -58,6 +61,24 @@ class OrchestratorAgent:
             
             # Create execution plan
             plan = llm.create_plan(state["user_query"], parsed_query)
+            
+            # Check if plan requires human collaboration
+            if plan.get("requires_human_input") and config.enable_human_interaction:
+                logger.info("Plan requires human input - requesting co-planning")
+                
+                # Request human collaboration on plan
+                modified_plan = self.human_manager.request_co_planning(
+                    state,
+                    proposed_plan=plan,
+                    reason="Complex query requires human guidance"
+                )
+                
+                if modified_plan:
+                    plan = modified_plan
+                elif state["status"] == "waiting_human":
+                    # Human input needed, pause execution
+                    logger.info("Waiting for human co-planning input")
+                    return state
             
             # Store in state
             state["plan"] = plan

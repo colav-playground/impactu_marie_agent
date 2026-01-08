@@ -161,3 +161,122 @@ def add_audit_event(state: AgentState, event: str, details: Dict[str, Any]) -> N
         "details": details
     })
     state["updated_at"] = datetime.utcnow().isoformat()
+
+
+def create_task(
+    agent: str,
+    input_data: Dict[str, Any],
+    task_id: Optional[str] = None
+) -> Task:
+    """
+    Create a new task for an agent.
+    
+    Args:
+        agent: Agent name
+        input_data: Input parameters for the task
+        task_id: Optional task ID, auto-generated if not provided
+        
+    Returns:
+        New task object
+    """
+    import uuid
+    
+    return Task(
+        task_id=task_id or f"{agent}_{uuid.uuid4().hex[:8]}",
+        agent=agent,
+        status="pending",
+        input=input_data,
+        output=None,
+        evidence=[],
+        confidence=None,
+        error=None,
+        started_at=None,
+        completed_at=None
+    )
+
+
+def add_task(state: AgentState, task: Task) -> None:
+    """
+    Add a new task to the state.
+    
+    Args:
+        state: Current state
+        task: Task to add
+    """
+    state["tasks"].append(task)
+    add_audit_event(state, "task_created", {
+        "task_id": task["task_id"],
+        "agent": task["agent"]
+    })
+
+
+def start_task(state: AgentState, task_id: str) -> None:
+    """
+    Mark a task as started.
+    
+    Args:
+        state: Current state
+        task_id: Task ID to start
+    """
+    for task in state["tasks"]:
+        if task["task_id"] == task_id:
+            task["status"] = "in_progress"
+            task["started_at"] = datetime.utcnow().isoformat()
+            add_audit_event(state, "task_started", {"task_id": task_id, "agent": task["agent"]})
+            return
+
+
+def complete_task(
+    state: AgentState,
+    task_id: str,
+    output: Dict[str, Any],
+    evidence: Optional[List[Evidence]] = None,
+    confidence: Optional[float] = None
+) -> None:
+    """
+    Mark a task as completed with results.
+    
+    Args:
+        state: Current state
+        task_id: Task ID to complete
+        output: Task output/results
+        evidence: Optional evidence collected
+        confidence: Optional confidence score
+    """
+    for task in state["tasks"]:
+        if task["task_id"] == task_id:
+            task["status"] = "completed"
+            task["output"] = output
+            task["evidence"] = evidence or []
+            task["confidence"] = confidence
+            task["completed_at"] = datetime.utcnow().isoformat()
+            
+            add_audit_event(state, "task_completed", {
+                "task_id": task_id,
+                "agent": task["agent"],
+                "confidence": confidence
+            })
+            return
+
+
+def fail_task(state: AgentState, task_id: str, error: str) -> None:
+    """
+    Mark a task as failed with error.
+    
+    Args:
+        state: Current state
+        task_id: Task ID to fail
+        error: Error message
+    """
+    for task in state["tasks"]:
+        if task["task_id"] == task_id:
+            task["status"] = "failed"
+            task["error"] = error
+            task["completed_at"] = datetime.utcnow().isoformat()
+            
+            add_audit_event(state, "task_failed", {
+                "task_id": task_id,
+                "agent": task["agent"],
+                "error": error
+            })
+            return

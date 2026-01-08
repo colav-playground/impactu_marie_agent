@@ -14,7 +14,7 @@ from datetime import datetime
 
 from pymongo import MongoClient
 
-from marie_agent.state import AgentState, add_audit_event
+from marie_agent.state import AgentState, add_audit_event, create_task, add_task, start_task, complete_task, fail_task
 from marie_agent.config import config
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,15 @@ class EntityResolutionAgent:
             Updated state with resolved entities
         """
         query = state["user_query"]
+        
+        # Create and start task
+        task = create_task(
+            agent="entity_resolution",
+            input_data={"query": query}
+        )
+        add_task(state, task)
+        start_task(state, task["task_id"])
+        
         logger.info(f"Resolving entities for: {query}")
         
         try:
@@ -59,6 +68,14 @@ class EntityResolutionAgent:
             
             state["entities_resolved"] = entities
             
+            # Complete task
+            complete_task(
+                state,
+                task["task_id"],
+                output=entities,
+                confidence=0.9 if entities["institutions"] or entities["authors"] else 0.5
+            )
+            
             add_audit_event(state, "entity_resolution_completed", {
                 "institutions_found": len(entities["institutions"]),
                 "authors_found": len(entities["authors"])
@@ -70,6 +87,7 @@ class EntityResolutionAgent:
             
         except Exception as e:
             logger.error(f"Error during entity resolution: {e}", exc_info=True)
+            fail_task(state, task["task_id"], str(e))
             state["error"] = str(e)
             state["next_agent"] = None
             state["status"] = "failed"
