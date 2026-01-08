@@ -5,7 +5,30 @@
 **Total LOC:** 9,865 lines
 **Files:** 33 Python files
 
-## 🔍 Issues Identified
+## � BUGS FOUND & FIXED
+
+### Critical: Graph Recursion Bug ✅ FIXED
+**Symptom:** `GraphRecursionError: Recursion limit of 25 reached`
+
+**Root Cause:**  
+- Agent nodes were not incrementing `current_step` after execution
+- Routing function `should_continue()` always saw `current_step=0`
+- Same agent was executed repeatedly in infinite loop
+
+**Fix Applied:**
+1. Created `increment_step()` helper in `core/routing.py`
+2. All agent nodes now call `increment_step()` after completion
+3. Improved routing fallback for unclear steps
+
+**Files Modified:**
+- `core/routing.py`: Added increment_step()
+- All agents: retrieval, entity_resolution, metrics, citations, reporting
+
+**Impact:** System now handles complex queries without hitting recursion limit
+
+---
+
+## �🔍 Issues Identified
 
 ### 1. HARDCODED VALUES (CRITICAL)
 
