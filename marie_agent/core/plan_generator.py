@@ -171,7 +171,7 @@ class DynamicPlanGenerator:
                 original_plan, issues, suggestions, context
             )
             
-            response = self.llm.invoke(prompt)
+            response = self.llm.generate(prompt, max_tokens=1024)
             refined_plan = self._parse_plan_from_response(response)
             
             logger.info(f"Refined plan to {len(refined_plan)} steps")
@@ -184,187 +184,213 @@ class DynamicPlanGenerator:
     
     def _analyze_query_type(self, query: str) -> str:
         """
-        Analyze query to determine type.
+        Analyze query using LLM to determine type intelligently.
         
         Returns:
             Query type: greeting, conversational, conceptual, data_driven, or complex
         """
-        query_lower = query.lower().strip()
-        
-        # Greetings and simple interactions
-        greeting_keywords = [
-            "hola", "hello", "hi", "hey", "buenos días", "good morning",
-            "buenas tardes", "good afternoon", "buenas noches", "good evening",
-            "cómo estás", "how are you", "qué tal", "what's up"
-        ]
-        
-        # Conversational queries (not requiring RAG)
-        conversational_keywords = [
-            "gracias", "thanks", "ok", "vale", "entiendo", "i understand",
-            "adiós", "bye", "chao", "hasta luego", "see you"
-        ]
-        
-        # Check for greetings
-        if any(query_lower.startswith(kw) or query_lower == kw for kw in greeting_keywords):
-            return "greeting"
-        
-        # Check for conversational
-        if any(kw in query_lower for kw in conversational_keywords):
-            return "conversational"
-        
-        # Conceptual queries (explanations)
-        conceptual_keywords = [
-            "qué es", "what is", "explica", "explain",
-            "define", "definición", "concepto", "concept",
-            "cómo funciona", "how does", "para qué sirve", "what for"
-        ]
-        
-        # Data-driven queries (counts, lists, stats)
-        data_keywords = [
-            "cuántos", "how many", "lista", "list",
-            "papers", "documentos", "investigadores", "researchers",
-            "top", "más citados", "most cited", "ranking",
-            "estadísticas", "statistics", "análisis", "analysis"
-        ]
-        
-        # Check for conceptual
-        if any(kw in query_lower for kw in conceptual_keywords):
-            return "conceptual"
-        
-        # Check for data-driven
-        if any(kw in query_lower for kw in data_keywords):
+        prompt = f"""You are MARIE, an AI assistant specializing in scientometric analysis of academic publications.
+
+Analyze this user query and classify it into ONE of these categories:
+
+1. **greeting**: Simple greetings or introductions (hello, hi, hola, etc.)
+2. **conversational**: Acknowledgments, thanks, goodbyes, or casual conversation (gracias, ok, bye, etc.)
+3. **conceptual**: Requests for explanations, definitions, or understanding concepts (what is..., explain..., how does...)
+4. **data_driven**: Requests for specific data, statistics, counts, rankings, or lists from the database (how many..., show me..., list..., statistics...)
+5. **complex**: Multi-part questions requiring multiple operations or analyses
+
+User query: "{query}"
+
+Respond with ONLY the category name (greeting, conversational, conceptual, data_driven, or complex).
+No explanation, just the category."""
+
+        try:
+            response = self.llm.generate(prompt, max_tokens=50).strip().lower()
+            
+            # Validate response
+            valid_types = ["greeting", "conversational", "conceptual", "data_driven", "complex"]
+            if response in valid_types:
+                logger.info(f"Query classified as: {response}")
+                return response
+            
+            # If LLM returns something unexpected, try to extract
+            for valid_type in valid_types:
+                if valid_type in response:
+                    logger.info(f"Query classified as: {valid_type}")
+                    return valid_type
+            
+            # Default to complex if can't determine
+            logger.warning(f"Could not classify query, defaulting to complex. LLM response: {response}")
+            return "complex"
+            
+        except Exception as e:
+            logger.error(f"Error analyzing query type: {e}")
+            # Fallback to data_driven as safe default
             return "data_driven"
-        
-        # Default to data-driven if mentions universities/institutions
-        if any(word in query_lower for word in ["universidad", "university", "unal", "udea"]):
-            return "data_driven"
-        
-        return "complex"
     
     def _plan_for_greeting(self, query: str) -> List[PlanStep]:
-        """Generate plan for greetings and simple hellos."""
-        return [
-            PlanStep(
-                agent_name="reporting",
-                title="Respond to greeting",
-                details=(
-                    f"User said: '{query}'. Respond with a friendly greeting and offer help. "
-                    "Explain that you're MARIE, an AI assistant for scientometric queries about research "
-                    "publications, authors, and institutions. Ask how you can help them."
-                )
-            )
-        ]
+        """Generate plan for greetings using LLM."""
+        return self._generate_plan_with_llm(query, "greeting")
     
     def _plan_for_conversational(self, query: str) -> List[PlanStep]:
-        """Generate plan for conversational responses (thanks, ok, bye, etc.)."""
-        return [
-            PlanStep(
-                agent_name="reporting",
-                title="Respond conversationally",
-                details=(
-                    f"User said: '{query}'. Respond appropriately in a brief, friendly manner. "
-                    "If they're saying goodbye, wish them well. If thanking, acknowledge it politely."
-                )
-            )
-        ]
+        """Generate plan for conversational responses using LLM."""
+        return self._generate_plan_with_llm(query, "conversational")
     
     def _plan_for_conceptual_query(self, query: str) -> List[PlanStep]:
-        """Generate plan for conceptual queries (definitions, explanations)."""
-        return [
-            PlanStep(
-                agent_name="retrieval",
-                title="Find relevant papers and definitions",
-                details=f"Search for papers and sources about: {query}"
-            ),
-            PlanStep(
-                agent_name="reporting",
-                title="Explain concept with references",
-                details=(
-                    f"Provide a clear explanation of the concept requested in: {query}. "
-                    "Use retrieved papers as supporting references and examples."
-                )
-            )
-        ]
+        """Generate plan for conceptual queries using LLM."""
+        return self._generate_plan_with_llm(query, "conceptual")
     
     def _plan_for_data_query(self, query: str) -> List[PlanStep]:
-        """Generate plan for data-driven queries (counts, lists, rankings)."""
-        
-        # Check if entity resolution needed
-        needs_entity_resolution = any(
-            word in query.lower() 
-            for word in ["universidad", "university", "unal", "udea", "antioquia"]
-        )
-        
-        plan = []
-        
-        if needs_entity_resolution:
-            plan.append(PlanStep(
-                agent_name="entity_resolution",
-                title="Resolve institution names",
-                details="Identify and standardize institution names in the query"
-            ))
-        
-        plan.append(PlanStep(
-            agent_name="retrieval",
-            title="Retrieve documents",
-            details=f"Search for documents matching: {query}"
-        ))
-        
-        # Check if metrics needed
-        if any(word in query.lower() for word in ["cuántos", "how many", "top", "ranking", "más"]):
-            plan.append(PlanStep(
-                agent_name="metrics",
-                title="Compute statistics",
-                details="Calculate counts, rankings, and statistics from retrieved documents"
-            ))
-        
-        plan.append(PlanStep(
-            agent_name="reporting",
-            title="Generate data-driven answer",
-            details=f"Answer with specific numbers and data: {query}"
-        ))
-        
-        return plan
+        """Generate plan for data-driven queries using LLM."""
+        return self._generate_plan_with_llm(query, "data_driven")
     
     def _plan_for_complex_query(self, query: str) -> List[PlanStep]:
-        """Generate plan for complex queries requiring multiple steps."""
-        return [
-            PlanStep(
-                agent_name="entity_resolution",
-                title="Resolve entities",
-                details="Identify institutions, researchers, or topics"
-            ),
-            PlanStep(
-                agent_name="retrieval",
-                title="Retrieve information",
-                details=f"Search comprehensively for: {query}"
-            ),
-            PlanStep(
-                agent_name="metrics",
-                title="Analyze data",
-                details="Compute relevant statistics and metrics"
-            ),
-            PlanStep(
-                agent_name="reporting",
-                title="Generate comprehensive response",
-                details=f"Provide complete answer to: {query}"
-            )
-        ]
+        """Generate plan for complex queries using LLM."""
+        return self._generate_plan_with_llm(query, "complex")
     
-    def _plan_default(self, query: str) -> List[PlanStep]:
-        """Default plan when query type unclear."""
+    def _generate_plan_with_llm(self, query: str, query_type: str) -> List[PlanStep]:
+        """
+        Generate execution plan using LLM intelligence.
+        
+        Args:
+            query: User query
+            query_type: Type of query (greeting, conversational, conceptual, data_driven, complex)
+            
+        Returns:
+            List of plan steps
+        """
+        prompt = f"""You are MARIE's Plan Generator. Create an execution plan for this query.
+
+Query: "{query}"
+Query Type: {query_type}
+
+Available Agents:
+1. **entity_resolution**: Resolves ambiguous entity names (universities, researchers) to standardized forms
+2. **retrieval**: Searches OpenSearch for relevant papers, authors, or institutions
+3. **metrics**: Calculates statistics, counts, rankings, and aggregations
+4. **citations**: Generates proper citations for referenced papers
+5. **reporting**: Generates the final response to the user
+
+Guidelines by Query Type:
+
+**greeting**: Just use reporting agent to respond friendly and introduce MARIE's capabilities
+
+**conversational**: Just use reporting agent for brief acknowledgment
+
+**conceptual** (explanations, definitions):
+- Use retrieval to find papers about the concept
+- Use reporting to explain with references
+
+**data_driven** (statistics, counts, lists):
+- Use entity_resolution if query mentions institutions/researchers
+- Use retrieval to get documents
+- Use metrics to calculate statistics
+- Use citations if specific papers should be cited
+- Use reporting to present results
+
+**complex** (multi-part):
+- Break into logical steps
+- Use entity_resolution first if needed
+- Then retrieval
+- Then metrics if numerical analysis needed
+- Then citations if references needed
+- Finally reporting
+
+Generate a plan as JSON array. Each step must have:
+- agent_name: one of the 5 agents above
+- title: brief description (5-8 words)
+- details: detailed instructions for the agent
+
+Example format:
+```json
+[
+  {{
+    "agent_name": "entity_resolution",
+    "title": "Resolve Universidad de Antioquia",
+    "details": "Identify and standardize the name 'Universidad de Antioquia' to its canonical form for accurate retrieval"
+  }},
+  {{
+    "agent_name": "retrieval",
+    "title": "Search papers from UdeA",
+    "details": "Query OpenSearch for all papers authored by researchers from Universidad de Antioquia"
+  }}
+]
+```
+
+Now generate the plan for the query above. Respond with ONLY the JSON array, no other text."""
+
+        try:
+            response = self.llm.generate(prompt, max_tokens=1024).strip()
+            
+            # Extract JSON from response
+            import json
+            import re
+            
+            # Try to find JSON array in response
+            json_match = re.search(r'\[.*\]', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                plan_data = json.loads(json_str)
+                
+                # Validate and create PlanSteps
+                plan = []
+                valid_agents = ["entity_resolution", "retrieval", "metrics", "citations", "reporting"]
+                
+                for step in plan_data:
+                    if not isinstance(step, dict):
+                        continue
+                    
+                    agent_name = step.get("agent_name", "")
+                    if agent_name not in valid_agents:
+                        logger.warning(f"Invalid agent name: {agent_name}, skipping step")
+                        continue
+                    
+                    plan.append(PlanStep(
+                        agent_name=agent_name,
+                        title=step.get("title", "Execute step"),
+                        details=step.get("details", f"Process query: {query}")
+                    ))
+                
+                if plan:
+                    logger.info(f"Generated plan with {len(plan)} steps using LLM")
+                    return plan
+            
+            logger.warning(f"Could not parse LLM response as JSON, using fallback")
+            
+        except Exception as e:
+            logger.error(f"Error generating plan with LLM: {e}")
+        
+        # Fallback to simple plan based on type
+        return self._fallback_plan(query, query_type)
+    
+    def _fallback_plan(self, query: str, query_type: str) -> List[PlanStep]:
+        """Fallback plan when LLM fails."""
+        if query_type in ["greeting", "conversational"]:
+            return [
+                PlanStep(
+                    agent_name="reporting",
+                    title="Respond to user",
+                    details=f"Respond appropriately to: {query}"
+                )
+            ]
+        
+        # Default: retrieval + reporting
         return [
             PlanStep(
                 agent_name="retrieval",
                 title="Search for information",
-                details=f"Find relevant information for: {query}"
+                details=f"Search for: {query}"
             ),
             PlanStep(
                 agent_name="reporting",
                 title="Generate response",
-                details=f"Answer query: {query}"
+                details=f"Answer: {query}"
             )
         ]
+    
+    def _plan_default(self, query: str) -> List[PlanStep]:
+        """Default fallback plan."""
+        return self._fallback_plan(query, "complex")
     
     def _build_refinement_prompt(
         self,
