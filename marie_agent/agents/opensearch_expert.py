@@ -145,18 +145,32 @@ class OpenSearchExpertAgent:
                 "sample_data": json.dumps(sample_doc, indent=2)[:500] if sample_doc else "No sample available"
             }
             
-            # Create prompt for query generation
-            query_gen_prompt = self.prompt_engineer.build_prompt(
-                agent_name="opensearch_expert",
-                task_description=(
-                    "Generate an OpenSearch query JSON based on user request and available fields. "
-                    "Return ONLY valid JSON for OpenSearch query DSL. "
-                    "Use multi_match for text search, term for exact match, range for numbers/dates. "
-                    "Example output: {\"query\": {\"multi_match\": {\"query\": \"text\", \"fields\": [\"title\", \"abstract\"]}}}"
-                ),
-                context=context,
-                technique="structured"
-            )
+            # Create prompt for query generation with detailed examples
+            query_gen_prompt = f"""Generate an OpenSearch query JSON for this search request.
+
+USER REQUEST: "{user_request}"
+
+AVAILABLE FIELDS: {', '.join(available_fields[:15])}
+
+INSTRUCTIONS:
+1. Use the EXACT text from user request in the "query" field
+2. Choose 2-4 most relevant fields from available fields for text search
+3. For simple searches, use multi_match
+4. For complex searches with filters, use bool queries
+5. Return ONLY the JSON - no explanations or extra text
+
+GOOD EXAMPLES:
+
+Search: "machine learning"
+{{"query": {{"multi_match": {{"query": "machine learning", "fields": ["title", "text", "abstract", "keywords"]}}}}}}
+
+Search: "papers about AI"  
+{{"query": {{"multi_match": {{"query": "papers about AI", "fields": ["title", "abstract", "text"]}}}}}}
+
+Search: "neural networks research"
+{{"query": {{"multi_match": {{"query": "neural networks research", "fields": ["title", "text", "keywords"]}}}}}}
+
+NOW GENERATE THE QUERY (JSON only, no markdown):"""
             
             # Generate query using LLM
             llm_response = self.llm.generate(query_gen_prompt, max_tokens=300)
