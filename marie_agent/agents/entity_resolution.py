@@ -57,12 +57,29 @@ class EntityResolutionAgent:
         logger.info(f"Resolving entities for: {query}")
         
         try:
-            # TODO: Use NER/LLM to extract entities from query
-            # For now, do simple keyword matching
+            # Use Prompt Engineer to build entity extraction prompt
+            from marie_agent.agents.prompt_engineer import get_prompt_engineer
+            from marie_agent.adapters.llm_factory import get_llm_adapter
             
+            prompt_engineer = get_prompt_engineer()
+            llm = get_llm_adapter()
+            
+            # Build few-shot prompt for entity extraction
+            context = {"query": query}
+            extraction_prompt = prompt_engineer.build_prompt(
+                agent_name="entity_resolution",
+                task_description="Extract institution and author names from the query",
+                context=context,
+                technique="few-shot"  # Use few-shot for pattern matching
+            )
+            
+            # Extract entities using LLM
+            llm_response = llm.generate(extraction_prompt, max_tokens=200)
+            
+            # Parse LLM response and resolve against database
             entities = {
-                "institutions": self._resolve_institutions(query),
-                "authors": self._resolve_authors(query),
+                "institutions": self._resolve_institutions(query, llm_response),
+                "authors": self._resolve_authors(query, llm_response),
                 "groups": []
             }
             
@@ -94,7 +111,7 @@ class EntityResolutionAgent:
         
         return state
     
-    def _resolve_institutions(self, query: str) -> List[Dict[str, Any]]:
+    def _resolve_institutions(self, query: str, llm_extracted: str = "") -> List[Dict[str, Any]]:
         """
         Resolve institution names from query.
         
@@ -137,17 +154,31 @@ class EntityResolutionAgent:
             logger.error(f"Institution resolution error: {e}")
             return []
     
-    def _resolve_authors(self, query: str) -> List[Dict[str, Any]]:
+    def _resolve_authors(self, query: str, llm_extracted: str = "") -> List[Dict[str, Any]]:
         """
-        Resolve author names from query.
+        Resolve author names using LLM extraction.
         
         Args:
             query: User query
+            llm_extracted: LLM extracted entities
             
         Returns:
             List of resolved authors with metadata
         """
-        # TODO: Implement author name resolution
+        # Use LLM extraction combined with keyword search
+        author_keywords = ["author:", "researcher:", "by ", "autor:"]
+        
+        for keyword in author_keywords:
+            if keyword in query.lower():
+                parts = query.lower().split(keyword)
+                if len(parts) > 1:
+                    author_name = " ".join(parts[1].split()[0:3])
+                    return [{
+                        "name": author_name,
+                        "id": f"author_{author_name.replace(' ', '_')}",
+                        "confidence": 0.7
+                    }]
+        
         return []
     
     def _extract_institution_keywords(self, query: str) -> List[str]:

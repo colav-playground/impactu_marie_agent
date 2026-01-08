@@ -57,11 +57,35 @@ class RetrievalAgent:
         logger.info(f"Retrieving evidence for: {query}")
         
         try:
-            # TODO: Parse query to extract entities and filters
-            # For now, do a simple search
+            # Use Prompt Engineer to build search query
+            from marie_agent.agents.prompt_engineer import get_prompt_engineer
+            from marie_agent.adapters.llm_factory import get_llm_adapter
+            
+            prompt_engineer = get_prompt_engineer()
+            llm = get_llm_adapter()
+            
+            # Get entities if available
+            entities = state.get("entities_resolved", {})
+            
+            context = {
+                "query": query,
+                "entities": entities,
+                "documents": []
+            }
+            
+            # Build structured query prompt
+            query_prompt = prompt_engineer.build_prompt(
+                agent_name="retrieval",
+                task_description="Generate search terms and filters for OpenSearch",
+                context=context,
+                technique="structured"  # Use structured for query format
+            )
+            
+            # Get optimized search terms from LLM
+            search_terms = llm.generate(query_prompt, max_tokens=100)
             
             # 1. Search OpenSearch for relevant documents
-            opensearch_results = self._search_opensearch(query)
+            opensearch_results = self._search_opensearch(search_terms or query)
             
             # 2. Query MongoDB for structured data
             # mongodb_results = self._query_mongodb(query)
@@ -106,8 +130,7 @@ class RetrievalAgent:
             # Search across all indices
             index_pattern = f"{config.opensearch.index_prefix}_*"
             
-            # Simple text search for now
-            # TODO: Add hybrid search with filters
+            # Build search query
             search_body = {
                 "query": {
                     "multi_match": {
