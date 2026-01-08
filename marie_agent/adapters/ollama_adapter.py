@@ -84,7 +84,7 @@ class OllamaAdapter(LLMPort):
                         "num_predict": max_tokens
                     }
                 },
-                timeout=30
+                timeout=120  # Increased for large models like nemotron-3-nano (24GB)
             )
             
             if response.status_code == 200:
