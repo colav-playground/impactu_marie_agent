@@ -184,48 +184,64 @@ class DynamicPlanGenerator:
     
     def _analyze_query_type(self, query: str) -> str:
         """
-        Analyze query using LLM to determine type intelligently.
+        Classify query using few-shot prompting for fast, accurate intent detection.
         
         Returns:
             Query type: greeting, conversational, conceptual, data_driven, or complex
         """
-        prompt = f"""You are MARIE, an AI assistant specializing in scientometric analysis of academic publications.
+        # Few-shot examples for classification
+        prompt = f"""Classify query:
 
-Analyze this user query and classify it into ONE of these categories:
+"hello" → greeting
+"what is AI?" → conceptual
+"how many papers?" → data_driven
+"thanks" → conversational
+"top 10 papers from MIT on AI with h-index" → complex
 
-1. **greeting**: Simple greetings or introductions (hello, hi, hola, etc.)
-2. **conversational**: Acknowledgments, thanks, goodbyes, or casual conversation (gracias, ok, bye, etc.)
-3. **conceptual**: Requests for explanations, definitions, or understanding concepts (what is..., explain..., how does...)
-4. **data_driven**: Requests for specific data, statistics, counts, rankings, or lists from the database (how many..., show me..., list..., statistics...)
-5. **complex**: Multi-part questions requiring multiple operations or analyses
-
-User query: "{query}"
-
-Respond with ONLY the category name (greeting, conversational, conceptual, data_driven, or complex).
-No explanation, just the category."""
+"{query}" →"""
 
         try:
-            response = self.llm.generate(prompt, max_tokens=50).strip().lower()
+            response = self.llm.generate(prompt, max_tokens=5).strip().lower()
             
-            # Validate response
+            # Extract category word
+            response = response.split()[0] if response else ""
+            
+            # Validate and extract
             valid_types = ["greeting", "conversational", "conceptual", "data_driven", "complex"]
+            
+            # Map Spanish variations to English
+            spanish_map = {
+                "saludo": "greeting",
+                "conversacional": "conversational",
+                "conceptual": "conceptual",
+                "datos": "data_driven",
+                "complejo": "complex",
+                "compleja": "complex"
+            }
+            
+            # Check Spanish mapping first
+            if response in spanish_map:
+                result = spanish_map[response]
+                logger.info(f"Query classified as: {result} (from {response})")
+                return result
+            
+            # Direct match
             if response in valid_types:
                 logger.info(f"Query classified as: {response}")
                 return response
             
-            # If LLM returns something unexpected, try to extract
+            # Partial match (handle variations like "data_driven:" or "category: greeting")
             for valid_type in valid_types:
-                if valid_type in response:
+                if valid_type.replace("_", " ") in response or valid_type.replace("_", "-") in response:
                     logger.info(f"Query classified as: {valid_type}")
                     return valid_type
             
-            # Default to complex if can't determine
-            logger.warning(f"Could not classify query, defaulting to complex. LLM response: {response}")
-            return "complex"
+            # Default to data_driven as it's the most common for research queries
+            logger.warning(f"Unclear classification ('{response}'), defaulting to data_driven")
+            return "data_driven"
             
         except Exception as e:
             logger.error(f"Error analyzing query type: {e}")
-            # Fallback to data_driven as safe default
             return "data_driven"
     
     def _plan_for_greeting(self, query: str) -> List[PlanStep]:
@@ -259,68 +275,36 @@ No explanation, just the category."""
         Returns:
             List of plan steps
         """
-        prompt = f"""You are MARIE's Plan Generator. Create an execution plan for this query.
+        # Simplified prompts per query type for faster inference
+        if query_type in ["greeting", "conversational"]:
+            prompt = f"""Generate JSON plan for query: "{query}"
+Type: {query_type}
+
+Response format:
+[{{"agent_name":"reporting","title":"Respond to user","details":"Reply appropriately to: {query}"}}]"""
+            max_tokens = 100
+        else:
+            prompt = f"""Generate JSON plan:
 
 Query: "{query}"
-Query Type: {query_type}
+Type: {query_type}
 
-Available Agents:
-1. **entity_resolution**: Resolves ambiguous entity names (universities, researchers) to standardized forms
-2. **retrieval**: Searches OpenSearch for relevant papers, authors, or institutions
-3. **metrics**: Calculates statistics, counts, rankings, and aggregations
-4. **citations**: Generates proper citations for referenced papers
-5. **reporting**: Generates the final response to the user
+Agents: entity_resolution, retrieval, metrics, citations, reporting
 
-Guidelines by Query Type:
+Rules:
+- greeting/conversational: just reporting
+- conceptual: retrieval + reporting  
+- data_driven: entity_resolution (if has institution/person) + retrieval + metrics + reporting
+- complex: entity_resolution + retrieval + metrics + citations + reporting
 
-**greeting**: Just use reporting agent to respond friendly and introduce MARIE's capabilities
+JSON array format:
+[{{"agent_name":"X","title":"Y","details":"Z"}}]
 
-**conversational**: Just use reporting agent for brief acknowledgment
-
-**conceptual** (explanations, definitions):
-- Use retrieval to find papers about the concept
-- Use reporting to explain with references
-
-**data_driven** (statistics, counts, lists):
-- Use entity_resolution if query mentions institutions/researchers
-- Use retrieval to get documents
-- Use metrics to calculate statistics
-- Use citations if specific papers should be cited
-- Use reporting to present results
-
-**complex** (multi-part):
-- Break into logical steps
-- Use entity_resolution first if needed
-- Then retrieval
-- Then metrics if numerical analysis needed
-- Then citations if references needed
-- Finally reporting
-
-Generate a plan as JSON array. Each step must have:
-- agent_name: one of the 5 agents above
-- title: brief description (5-8 words)
-- details: detailed instructions for the agent
-
-Example format:
-```json
-[
-  {{
-    "agent_name": "entity_resolution",
-    "title": "Resolve Universidad de Antioquia",
-    "details": "Identify and standardize the name 'Universidad de Antioquia' to its canonical form for accurate retrieval"
-  }},
-  {{
-    "agent_name": "retrieval",
-    "title": "Search papers from UdeA",
-    "details": "Query OpenSearch for all papers authored by researchers from Universidad de Antioquia"
-  }}
-]
-```
-
-Now generate the plan for the query above. Respond with ONLY the JSON array, no other text."""
+Plan:"""
+            max_tokens = 512
 
         try:
-            response = self.llm.generate(prompt, max_tokens=1024).strip()
+            response = self.llm.generate(prompt, max_tokens=max_tokens).strip()
             
             # Extract JSON from response
             import json
