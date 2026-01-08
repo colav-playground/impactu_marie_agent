@@ -213,3 +213,78 @@ def run_marie_query(
     final_state["turn_count"] = len(session.turns) if session else 1
     
     return final_state
+
+def stream_marie_query(
+    user_query: str,
+    request_id: str,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None
+):
+    """
+    Stream execution of a MARIE query (LangGraph best practice).
+    
+    Yields state updates as they happen for responsive UX.
+    
+    Args:
+        user_query: User's question
+        request_id: Unique request identifier
+        session_id: Optional session ID
+        user_id: Optional user ID
+        
+    Yields:
+        State updates from each agent execution
+    """
+    logger.info(f"Starting MARIE query (streaming): {user_query}")
+    
+    # Initialize memory manager
+    memory = get_memory_manager()
+    
+    # Get or create session
+    if session_id:
+        session = memory.get_session(session_id)
+        if not session:
+            session = memory.create_session(session_id, user_id)
+    else:
+        session = memory.create_session(request_id, user_id)
+        session_id = request_id
+    
+    # Get conversation context
+    conversation_context = memory.get_conversation_context(session_id, turns=3)
+    
+    # Create initial state
+    initial_state = create_initial_state(user_query, request_id)
+    
+    # Add conversation context
+    if conversation_context:
+        initial_state["parsed_query"] = {
+            "conversation_history": conversation_context
+        }
+    
+    # Create and run graph
+    app = create_marie_graph()
+    
+    # Stream execution
+    final_state = None
+    for step_output in app.stream(initial_state, stream_mode="values"):
+        final_state = step_output
+        yield step_output
+    
+    # Record turn in memory
+    if final_state:
+        memory.record_turn(
+            session_id=session_id,
+            turn_id=request_id,
+            user_query=user_query,
+            agent_response=final_state.get("final_answer", ""),
+            confidence=final_state.get("confidence_score", 0.0),
+            evidence_count=len(final_state.get("evidence_map", {})),
+            metadata={
+                "status": final_state["status"],
+                "agents_used": len([t for t in final_state.get("tasks", []) if t["status"] == "completed"])
+            }
+        )
+        
+        # Persist session
+        memory.save_session(session_id)
+        
+        logger.info(f"MARIE query completed (streaming). Status: {final_state['status']}")
