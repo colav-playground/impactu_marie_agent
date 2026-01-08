@@ -5,31 +5,7 @@ Python 3.10+ AI multi-agent system for research intelligence and scientific lite
 
 **Key Technologies:** LangChain 1.2+, LangGraph 1.0+, OpenSearch 3.1+, MongoDB 4.16+, Ollama, Python 3.10-3.12
 
-## Build & Development
-
-### Environment Setup
-```bash
-# ALWAYS use uv for package management, NEVER use pip directly
-uv pip install -e .
-
-# Required environment variables in .env:
-OPENSEARCH_URL=http://localhost:9200
-MONGODB_URI=mongodb://localhost:27017
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2:1.5b
-```
-
-### Commands
-```bash
-# Run interactive chat
-marie_chat
-
-# Run indexer  
-marie_index --help
-
-# Docker services
-docker compose up -d opensearch mongodb ollama
-```
+**Setup:** `uv pip install -e .` | **Run:** `marie_chat` or `marie_index --help` 
 
 ## Project Structure
 ```
