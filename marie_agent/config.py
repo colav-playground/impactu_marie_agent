@@ -91,11 +91,26 @@ class OpenSearchConfig(BaseModel):
     index_prefix: str = Field(default="impactu_marie_agent", description="Index prefix")
 
 
+class RedisConfig(BaseModel):
+    """Redis configuration for distributed caching."""
+    host: str = Field(default="localhost", description="Redis host")
+    port: int = Field(default=6379, description="Redis port")
+    password: Optional[str] = Field(default=None, description="Redis password")
+    db: int = Field(default=0, description="Redis database number")
+    enabled: bool = Field(default=False, description="Enable Redis caching")
+    
+    # TTL settings (seconds)
+    schema_ttl: int = Field(default=600, description="Schema cache TTL (10 min)")
+    entity_ttl: int = Field(default=300, description="Entity cache TTL (5 min)")
+    query_ttl: int = Field(default=60, description="Query cache TTL (1 min)")
+
+
 class MarieConfig(BaseModel):
     """Main MARIE configuration."""
     llm: LLMConfig = Field(default_factory=LLMConfig)
     mongodb: MongoDBConfig = Field(default_factory=MongoDBConfig)
     opensearch: OpenSearchConfig = Field(default_factory=OpenSearchConfig)
+    redis: RedisConfig = Field(default_factory=RedisConfig)
     
     confidence_threshold: float = Field(
         default=0.7,
@@ -127,6 +142,13 @@ class MarieConfig(BaseModel):
             opensearch=OpenSearchConfig(
                 url=os.getenv("OPENSEARCH_URL", "http://localhost:9200"),
                 index_prefix=os.getenv("OPENSEARCH_INDEX_PREFIX", "impactu_marie_agent")
+            ),
+            redis=RedisConfig(
+                host=os.getenv("REDIS_HOST", "localhost"),
+                port=int(os.getenv("REDIS_PORT", "6379")),
+                password=os.getenv("REDIS_PASSWORD"),
+                db=int(os.getenv("REDIS_DB", "0")),
+                enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true"
             ),
             confidence_threshold=float(os.getenv("MARIE_CONFIDENCE_THRESHOLD", "0.7")),
             enable_human_interaction=os.getenv("MARIE_ENABLE_HUMAN", "true").lower() == "true",
