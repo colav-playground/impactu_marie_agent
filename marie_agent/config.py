@@ -14,7 +14,7 @@ load_dotenv()
 class LLMConfig(BaseModel):
     """LLM configuration."""
     provider: str = Field(default="ollama", description="LLM provider (ollama, vllm, anthropic)")
-    model: str = Field(default="phi3:mini", description="Model name")
+    model: str = Field(default="qwen2:1.5b", description="Model name")
     temperature: float = Field(default=0.1, description="Temperature for generation")
     max_tokens: int = Field(default=4096, description="Max tokens for response")
     api_key: Optional[str] = Field(default=None, description="API key")
@@ -60,8 +60,8 @@ class MarieConfig(BaseModel):
         """Load configuration from environment variables."""
         return cls(
             llm=LLMConfig(
-                provider=os.getenv("MARIE_LLM_PROVIDER", "anthropic"),
-                model=os.getenv("MARIE_LLM_MODEL", "claude-3-5-sonnet-20241022"),
+                provider=os.getenv("MARIE_LLM_PROVIDER", "ollama"),
+                model=os.getenv("MARIE_LLM_MODEL", "qwen2:1.5b"),
                 temperature=float(os.getenv("MARIE_LLM_TEMPERATURE", "0.1")),
                 max_tokens=int(os.getenv("MARIE_LLM_MAX_TOKENS", "4096")),
                 api_key=os.getenv("ANTHROPIC_API_KEY")

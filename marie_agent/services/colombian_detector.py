@@ -197,7 +197,7 @@ class ColombianDetector:
             return None
             
         except Exception as e:
-            logger.error(f"Error searching affiliations: {e}")
+            logger.debug(f"Error searching affiliations (index may not exist): {e}")
             return None
     
     def _search_person(self, query_text: str) -> Optional[Dict[str, Any]]:
@@ -262,7 +262,7 @@ class ColombianDetector:
             return None
             
         except Exception as e:
-            logger.error(f"Error searching persons: {e}")
+            logger.debug(f"Error searching persons (index may not exist): {e}")
             return None
     
     def _search_work(self, query_text: str) -> Optional[Dict[str, Any]]:
@@ -332,7 +332,7 @@ class ColombianDetector:
             return None
             
         except Exception as e:
-            logger.error(f"Error searching works: {e}")
+            logger.debug(f"Error searching works (index may not exist): {e}")
             return None
 
 

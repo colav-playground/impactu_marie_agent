@@ -6,6 +6,7 @@ Chat interactivo que muestra la ejecución paso a paso del sistema Magentic.
 """
 
 import logging
+import time
 from typing import Dict, Any
 
 from marie_agent.state import create_initial_state
@@ -14,7 +15,8 @@ from marie_agent.orchestrator import OrchestratorAgent
 # Suppress verbose logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("opensearchpy").setLevel(logging.WARNING)
+logging.getLogger("opensearchpy").setLevel(logging.ERROR)  # Suppress OpenSearch warnings
+logging.getLogger("opensearch").setLevel(logging.ERROR)  # Suppress OpenSearch warnings
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 logging.basicConfig(level=logging.WARNING)
 
@@ -125,7 +127,6 @@ def simulate_execution(state: Dict[str, Any], orchestrator: OrchestratorAgent):
             print_step_start(i, agent_name)
             
             # Simulate work
-            import time
             time.sleep(0.5)  # Brief pause for visual effect
             
             # Show result preview
