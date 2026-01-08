@@ -466,5 +466,8 @@ def reporting_agent_node(state: AgentState) -> AgentState:
     Returns:
         Updated state with final report
     """
+    from marie_agent.core.routing import increment_step
+    
     agent = ReportingAgent()
-    return agent.generate_report(state)
+    state = agent.generate_report(state)
+    return increment_step(state)

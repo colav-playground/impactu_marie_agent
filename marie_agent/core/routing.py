@@ -90,12 +90,31 @@ def should_continue(state: AgentState) -> AgentRoute:
         return "metrics"
     elif "cite" in step_lower or "reference" in step_lower:
         return "citations"
-    elif "report" in step_lower or "answer" in step_lower or "respond" in step_lower:
+    elif "report" in step_lower or "answer" in step_lower or "respond" in step_lower or "generate" in step_lower or "response" in step_lower:
         return "reporting"
     
-    # Default: go back to orchestrator for replanning
-    logger.warning(f"Unclear routing for step: {step}")
-    return "end"
+    # Default: go to reporting if all else fails
+    logger.warning(f"Unclear routing for step '{step}' - defaulting to reporting")
+    return "reporting"
+
+
+def increment_step(state: AgentState) -> AgentState:
+    """
+    Increment current_step after agent execution.
+    
+    CRITICAL: All agents should call this after completing their task
+    to advance the workflow to the next step.
+    
+    Args:
+        state: Current state
+        
+    Returns:
+        Updated state with incremented current_step
+    """
+    current = state.get("current_step", 0)
+    state["current_step"] = current + 1
+    logger.info(f"Step incremented: {current} → {current + 1}")
+    return state
 
 
 def should_retry(state: AgentState) -> bool:

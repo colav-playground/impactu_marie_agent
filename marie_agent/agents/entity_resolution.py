@@ -293,5 +293,8 @@ def entity_resolution_agent_node(state: AgentState) -> AgentState:
     Returns:
         Updated state with resolved entities
     """
+    from marie_agent.core.routing import increment_step
+    
     agent = EntityResolutionAgent()
-    return agent.resolve(state)
+    state = agent.resolve_entities(state)
+    return increment_step(state)

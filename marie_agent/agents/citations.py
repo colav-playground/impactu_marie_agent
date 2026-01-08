@@ -98,5 +98,8 @@ def citations_agent_node(state: AgentState) -> AgentState:
     Returns:
         Updated state with citations
     """
+    from marie_agent.core.routing import increment_step
+    
     agent = CitationsAgent()
-    return agent.build_citations(state)
+    state = agent.add_citations(state)
+    return increment_step(state)

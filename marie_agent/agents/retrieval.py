@@ -310,5 +310,11 @@ def retrieval_agent_node(state: AgentState) -> AgentState:
     Returns:
         Updated state with retrieved evidence
     """
+    from marie_agent.core.routing import increment_step
+    
     agent = RetrievalAgent()
-    return agent.retrieve(state)
+    state = agent.retrieve(state)
+    
+    # Increment step after completion
+    return increment_step(state)
+

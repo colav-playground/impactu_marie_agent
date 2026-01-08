@@ -149,5 +149,8 @@ def metrics_agent_node(state: AgentState) -> AgentState:
     Returns:
         Updated state with computed metrics
     """
+    from marie_agent.core.routing import increment_step
+    
     agent = MetricsAgent()
-    return agent.compute(state)
+    state = agent.compute_metrics(state)
+    return increment_step(state)
