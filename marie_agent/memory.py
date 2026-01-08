@@ -77,13 +77,21 @@ class ConversationSession:
         self.topics: List[str] = []
         
     def add_turn(self, turn: ConversationTurn) -> None:
-        """Add turn to conversation."""
+        """Add turn to conversation with enhanced logging."""
         self.turns.append(turn)
-        logger.debug(f"Added turn {turn.turn_id} to session {self.session_id}")
+        logger.info(f"✓ Turn {turn.turn_id} added to session {self.session_id} "
+                   f"(confidence: {turn.confidence:.2f}, evidence: {turn.evidence_count})")
+        
+        # Log memory stats
+        total_turns = len(self.turns)
+        avg_confidence = sum(t.confidence for t in self.turns) / total_turns if total_turns > 0 else 0
+        logger.debug(f"Session {self.session_id}: {total_turns} turns, avg confidence: {avg_confidence:.2f}")
     
     def get_recent_context(self, n: int = 3) -> List[ConversationTurn]:
-        """Get n most recent turns for context."""
-        return self.turns[-n:] if len(self.turns) > n else self.turns
+        """Get n most recent turns for context with logging."""
+        recent = self.turns[-n:] if len(self.turns) > n else self.turns
+        logger.debug(f"Retrieved {len(recent)} recent turns for context")
+        return recent
     
     def update_context(self, key: str, value: Any) -> None:
         """Update session context."""

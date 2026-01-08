@@ -115,52 +115,63 @@ class RetrievalAgent:
         
         return state
     
-    def _search_opensearch(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def _search_opensearch(self, query: str, limit: int = 10, retry_count: int = 0) -> List[Dict[str, Any]]:
         """
-        Search OpenSearch for relevant documents.
+        Search OpenSearch for relevant documents with retry logic.
         
         Args:
             query: User query
             limit: Maximum number of results
+            retry_count: Current retry attempt
             
         Returns:
             List of search results
         """
+        max_retries = 3
+        
         try:
-            # Search across all indices
-            index_pattern = f"{config.opensearch.index_prefix}_*"
+            # Use tool from tools.py for consistency
+            from marie_agent.tools import search_publications
             
-            # Build search query
-            search_body = {
-                "query": {
-                    "multi_match": {
-                        "query": query,
-                        "fields": ["text", "title", "authors"],
-                        "type": "best_fields"
-                    }
-                },
-                "size": limit
-            }
+            logger.info(f"Searching OpenSearch (attempt {retry_count + 1}/{max_retries + 1})")
             
-            response = self.opensearch.search(
-                index=index_pattern,
-                body=search_body
-            )
+            # Invoke tool
+            formatted_result, documents = search_publications.invoke({
+                "query": query,
+                "limit": limit
+            })
             
+            # Convert to expected format
             results = []
-            for hit in response["hits"]["hits"]:
+            for doc in documents:
                 results.append({
-                    "index": hit["_index"],
-                    "id": hit["_id"],
-                    "score": hit["_score"],
-                    "source": hit["_source"]
+                    "index": "opensearch",
+                    "id": doc["id"],
+                    "score": doc.get("score", 0.0),
+                    "source": {
+                        "title": doc.get("title", ""),
+                        "authors": doc.get("authors", []),
+                        "year": doc.get("year"),
+                        "text": doc.get("title", "")  # Simplified
+                    }
                 })
             
+            logger.info(f"✓ Retrieved {len(results)} documents via tool")
             return results
             
         except Exception as e:
-            logger.error(f"OpenSearch query error: {e}")
-            return []
+            logger.error(f"OpenSearch error (attempt {retry_count + 1}): {e}")
+            
+            # Retry with exponential backoff
+            if retry_count < max_retries:
+                import time
+                wait_time = 2 ** retry_count
+                logger.info(f"Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                return self._search_opensearch(query, limit, retry_count + 1)
+            else:
+                logger.error("Max retries reached, returning empty")
+                return []
     
     def _query_mongodb(self, query: str) -> List[Dict[str, Any]]:
         """

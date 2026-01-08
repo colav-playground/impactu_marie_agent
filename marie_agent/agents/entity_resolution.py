@@ -209,6 +209,50 @@ class EntityResolutionAgent:
         
         return []
     
+    def _resolve_with_tool(self, name: str, entity_type: str) -> Dict[str, Any]:
+        """
+        Resolve entity using tools.py with retry logic.
+        
+        Args:
+            name: Entity name
+            entity_type: Type (institution/author)
+            
+        Returns:
+            Entity metadata or empty dict
+        """
+        max_retries = 2
+        retry_count = 0
+        
+        while retry_count <= max_retries:
+            try:
+                from marie_agent.tools import resolve_entity
+                
+                logger.debug(f"Resolving {entity_type} '{name}' (attempt {retry_count + 1})")
+                
+                formatted, metadata = resolve_entity.invoke({
+                    "name": name,
+                    "entity_type": entity_type
+                })
+                
+                if metadata:
+                    logger.info(f"✓ Resolved {entity_type}: {name}")
+                    return metadata
+                else:
+                    logger.warning(f"Tool returned no metadata for {name}")
+                    return {}
+                    
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"Tool error for {name} (attempt {retry_count}): {e}")
+                
+                if retry_count > max_retries:
+                    return {}
+                    
+                import time
+                time.sleep(0.5 * retry_count)
+        
+        return {}
+    
     def _extract_institution_keywords(self, query: str) -> List[str]:
         """
         Extract institution name keywords from query.
