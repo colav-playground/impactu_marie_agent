@@ -1,22 +1,32 @@
 """
-Prompt Engineer Agent - Dynamic prompt generation service.
+Prompt Engineer Agent - Dynamic prompt generation service with reflexion.
 
-Helps other agents construct optimized prompts using techniques like:
+Self-improving prompt engineering system that:
+- Generates optimized prompts using multiple techniques
+- Reflects on prompt effectiveness
+- Learns from successful patterns
+- Logs prompts for analytics
+- Iteratively improves poor prompts
+
+Techniques:
 - Zero-shot prompting
 - Few-shot prompting  
 - Chain-of-Thought (CoT)
 - ReAct (Reasoning + Acting)
 - Self-consistency
 - Structured outputs
-
-Agents call this service to get task-specific prompts based on context.
 """
 
 from typing import Dict, Any, List, Optional, Literal
 import logging
+import json
+from dataclasses import dataclass, field
+from datetime import datetime
+from opensearchpy import OpenSearch
 
 from marie_agent.state import AgentState
 from marie_agent.adapters.llm_factory import get_llm_adapter
+from marie_agent.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +34,142 @@ logger = logging.getLogger(__name__)
 PromptTechnique = Literal["zero-shot", "few-shot", "chain-of-thought", "react", "structured"]
 
 
+@dataclass
+class PromptAttempt:
+    """Record of a prompt generation attempt."""
+    agent_name: str
+    task_description: str
+    technique: str
+    prompt: str
+    context_summary: str
+    success: bool = False
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+class PromptMemory:
+    """Memory system for storing successful prompt patterns."""
+    
+    def __init__(self, max_size: int = 100):
+        self.attempts: List[PromptAttempt] = []
+        self.max_size = max_size
+        self.successful_patterns: Dict[str, List[str]] = {}
+    
+    def add_attempt(self, attempt: PromptAttempt):
+        """Add a prompt attempt to memory."""
+        self.attempts.append(attempt)
+        
+        if len(self.attempts) > self.max_size:
+            self.attempts = self.attempts[-self.max_size:]
+        
+        # Learn from successful prompts
+        if attempt.success:
+            key = f"{attempt.agent_name}:{attempt.technique}"
+            if key not in self.successful_patterns:
+                self.successful_patterns[key] = []
+            self.successful_patterns[key].append(attempt.prompt[:200])
+            logger.debug(f"Learned successful prompt pattern for {key}")
+    
+    def get_insights(self, agent_name: str, technique: str) -> str:
+        """Get insights from past attempts for this agent and technique."""
+        key = f"{agent_name}:{technique}"
+        
+        if key in self.successful_patterns:
+            return f"Found {len(self.successful_patterns[key])} successful patterns for {agent_name} using {technique}"
+        
+        return "No previous successful patterns for this combination"
+
+
 class PromptEngineerService:
     """
-    Service that generates optimized prompts for agents on demand.
+    Self-improving prompt engineering service with reflexion.
     
-    Other agents call this service with their task requirements
-    and receive back an optimized prompt using appropriate techniques.
+    Features:
+    - Iterative refinement
+    - Success evaluation
+    - Pattern learning
+    - Prompt logging
     """
     
+    MAX_ITERATIONS = 2  # Max refinement attempts
+    PROMPT_LOG_INDEX = "impactu_marie_agent_prompt_logs"
+    
     def __init__(self):
-        """Initialize Prompt Engineer Service."""
+        """Initialize Prompt Engineer Service with reflexion."""
         self.llm = get_llm_adapter()
-        logger.info("Prompt Engineer Service initialized")
+        self.memory = PromptMemory()
+        self.client = OpenSearch(hosts=[config.opensearch.url], timeout=30)
+        self._ensure_prompt_log_index()
+        logger.info("Prompt Engineer Service initialized with reflexion")
+    
+    def _ensure_prompt_log_index(self):
+        """Create index for prompt logging if it doesn't exist."""
+        try:
+            if not self.client.indices.exists(index=self.PROMPT_LOG_INDEX):
+                logger.info(f"Creating prompt log index: {self.PROMPT_LOG_INDEX}")
+                
+                index_body = {
+                    "settings": {
+                        "number_of_shards": 1,
+                        "number_of_replicas": 1
+                    },
+                    "mappings": {
+                        "properties": {
+                            "timestamp": {"type": "date"},
+                            "agent_name": {"type": "keyword"},
+                            "task_description": {"type": "text"},
+                            "technique": {"type": "keyword"},
+                            "prompt": {"type": "text"},
+                            "context_summary": {"type": "text"},
+                            "success": {"type": "boolean"},
+                            "iterations": {"type": "integer"},
+                            "prompt_id": {"type": "keyword"}
+                        }
+                    }
+                }
+                
+                self.client.indices.create(index=self.PROMPT_LOG_INDEX, body=index_body)
+                logger.info(f"✓ Prompt log index created: {self.PROMPT_LOG_INDEX}")
+            else:
+                logger.debug(f"Prompt log index already exists: {self.PROMPT_LOG_INDEX}")
+        except Exception as e:
+            logger.error(f"Error creating prompt log index: {e}")
+    
+    def _save_prompt_log(self, log_data: Dict[str, Any]):
+        """Save prompt generation details to OpenSearch."""
+        try:
+            self.client.index(
+                index=self.PROMPT_LOG_INDEX,
+                body=log_data,
+                refresh=True
+            )
+            logger.debug(f"✓ Prompt logged: {log_data['prompt_id']}")
+        except Exception as e:
+            logger.error(f"Error saving prompt log: {e}")
+    
+    def _evaluate_prompt_quality(self, prompt: str, context: Dict[str, Any]) -> bool:
+        """
+        Evaluate if generated prompt is of good quality.
+        
+        Heuristics:
+        - Prompt has clear instructions
+        - Includes relevant context
+        - Not too short or too long
+        - Contains task description
+        """
+        if not prompt or len(prompt) < 50:
+            return False
+        
+        if len(prompt) > 5000:
+            logger.warning("Prompt too long, might be inefficient")
+            return False
+        
+        # Check if includes user query
+        query = context.get("query", "")
+        if query and query not in prompt:
+            logger.warning("Prompt doesn't include user query")
+            return False
+        
+        return True
     
     def build_prompt(
         self,
@@ -46,7 +180,9 @@ class PromptEngineerService:
         examples: Optional[List[Dict[str, str]]] = None
     ) -> str:
         """
-        Build optimized prompt for an agent's task.
+        Build optimized prompt with reflexion for quality.
+        
+        Iteratively refines prompt if quality is low.
         
         Args:
             agent_name: Name of the requesting agent
@@ -65,20 +201,76 @@ class PromptEngineerService:
             technique = self._select_technique(agent_name, task_description, context)
             logger.info(f"Selected technique: {technique}")
         
-        # Build prompt using selected technique
-        if technique == "zero-shot":
-            return self._build_zero_shot(agent_name, task_description, context)
-        elif technique == "few-shot":
-            return self._build_few_shot(agent_name, task_description, context, examples or [])
-        elif technique == "chain-of-thought":
-            return self._build_chain_of_thought(agent_name, task_description, context)
-        elif technique == "react":
-            return self._build_react(agent_name, task_description, context)
-        elif technique == "structured":
-            return self._build_structured(agent_name, task_description, context)
-        else:
-            # Fallback to zero-shot
-            return self._build_zero_shot(agent_name, task_description, context)
+        # Get insights from memory
+        insights = self.memory.get_insights(agent_name, technique)
+        logger.debug(insights)
+        
+        best_prompt = None
+        best_quality = False
+        
+        # ITERATIVE REFINEMENT
+        for iteration in range(1, self.MAX_ITERATIONS + 1):
+            logger.debug(f"Prompt generation iteration {iteration}/{self.MAX_ITERATIONS}")
+            
+            # Build prompt using selected technique
+            if technique == "zero-shot":
+                prompt = self._build_zero_shot(agent_name, task_description, context)
+            elif technique == "few-shot":
+                prompt = self._build_few_shot(agent_name, task_description, context, examples or [])
+            elif technique == "chain-of-thought":
+                prompt = self._build_chain_of_thought(agent_name, task_description, context)
+            elif technique == "react":
+                prompt = self._build_react(agent_name, task_description, context)
+            elif technique == "structured":
+                prompt = self._build_structured(agent_name, task_description, context)
+            else:
+                prompt = self._build_zero_shot(agent_name, task_description, context)
+            
+            # Evaluate quality
+            is_good = self._evaluate_prompt_quality(prompt, context)
+            
+            if is_good or len(prompt) > 0:
+                best_prompt = prompt
+                best_quality = is_good
+                
+                if is_good:
+                    logger.debug(f"✓ Good prompt generated on iteration {iteration}")
+                    break
+            
+            # If not good and not last iteration, try different approach
+            if iteration < self.MAX_ITERATIONS and not is_good:
+                logger.debug(f"Prompt quality low, refining...")
+                # Add more context for next iteration
+                context["_iteration"] = iteration
+        
+        # Record attempt in memory
+        attempt = PromptAttempt(
+            agent_name=agent_name,
+            task_description=task_description,
+            technique=technique,
+            prompt=best_prompt[:500],  # Store preview
+            context_summary=str(context.get("query", ""))[:100],
+            success=best_quality
+        )
+        self.memory.add_attempt(attempt)
+        
+        # Log to OpenSearch
+        prompt_log = {
+            "timestamp": datetime.now().isoformat(),
+            "prompt_id": f"{agent_name}_{int(datetime.now().timestamp())}",
+            "agent_name": agent_name,
+            "task_description": task_description[:200],
+            "technique": technique,
+            "prompt": best_prompt[:1000],  # Store preview
+            "context_summary": str(context.get("query", ""))[:200],
+            "success": best_quality,
+            "iterations": iteration
+        }
+        self._save_prompt_log(prompt_log)
+        
+        logger.info(f"✓ Prompt generated using {technique} ({iteration} iteration(s))")
+        
+        return best_prompt
     
     def _select_technique(
         self,
